@@ -42,3 +42,6 @@ laravel/storage/logs/
 # Temp files
 *.tmp
 *.temp
+
+# Docs (se mantienen localmente, no se suben)
+docs/
