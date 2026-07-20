@@ -32,6 +32,7 @@ logs/
 # Database backups
 *.sql
 *.sql.gz
+!fastapi/migrations/*.sql
 
 # Laravel
 laravel/vendor/

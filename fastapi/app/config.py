@@ -14,11 +14,11 @@ class Settings(BaseSettings):
     DEBUG: bool = False
 
     # MySQL (Remote)
-    DB_HOST: str = "DB_HOST"
+    DB_HOST: str = ""
     DB_PORT: int = 3306
-    DB_USER: str = "DB_USER"
+    DB_USER: str = ""
     DB_PASS: str = ""
-    DB_NAME: str = "DB_NAME"
+    DB_NAME: str = ""
 
     # Chat2Desk
     C2D_BASE_URL: str = "https://api.chat2desk.com.mx/v1"
