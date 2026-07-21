@@ -1,6 +1,18 @@
 """
-Configuration settings for API_C2D
-Loads variables from .env file
+Configuration settings para API_C2D
+
+Carga variables desde el archivo .env usando Pydantic Settings.
+Los valores se cachean con @lru_cache para evitar re-leer el archivo .env.
+
+Uso:
+    from app.config import get_settings
+    settings = get_settings()
+    print(settings.DB_HOST)
+
+Notas de seguridad:
+    - Las credenciales de BD están en .env (nunca en código fuente)
+    - El .env NO se sube a git (excluido en .gitignore)
+    - El .env.example tiene valores placeholder para referencia
 """
 
 from pydantic_settings import BaseSettings
@@ -8,35 +20,56 @@ from functools import lru_cache
 
 
 class Settings(BaseSettings):
-    # App
+    """
+    Configuración de la aplicación.
+
+    Todos los campos se cargan desde variables de entorno o .env.
+    El orden de prioridad es: ENV > .env > valor por defecto.
+    """
+
+    # =========================================================================
+    # APP - Configuración general
+    # =========================================================================
     APP_NAME: str = "API_C2D"
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = False
 
-    # MySQL (Remote)
-    DB_HOST: str = ""
-    DB_PORT: int = 3306
-    DB_USER: str = ""
-    DB_PASS: str = ""
-    DB_NAME: str = ""
+    # =========================================================================
+    # DATABASE - Conexión MySQL remota
+    # =========================================================================
+    # NOTA: Estos valores NO están en .env.example (son específicos del entorno)
+    DB_HOST: str = ""          # Host de MySQL (ej: 10.0.0.92)
+    DB_PORT: int = 3306        # Puerto MySQL
+    DB_USER: str = ""          # Usuario de BD
+    DB_PASS: str = ""          # Contraseña de BD
+    DB_NAME: str = ""          # Nombre de la BD
 
-    # Chat2Desk
-    C2D_BASE_URL: str = "https://api.chat2desk.com.mx/v1"
-    C2D_WEB_URL: str = "https://web.chat2desk.com.mx"
-    C2D_DEFAULT_TOKEN: str = ""
+    # =========================================================================
+    # Chat2Desk - API externa
+    # =========================================================================
+    C2D_BASE_URL: str = "https://api.chat2desk.com.mx/v1"  # API REST
+    C2D_WEB_URL: str = "https://web.chat2desk.com.mx"      # Web login
+    C2D_DEFAULT_TOKEN: str = ""  # Token API de Chat2Desk
 
-    # Gemini
-    GEMINI_API_KEY: str = ""
-    GEMINI_MODEL: str = "gemini-2.0-flash"
+    # =========================================================================
+    # Gemini - IA para análisis
+    # =========================================================================
+    GEMINI_API_KEY: str = ""    # API key de Google Gemini
+    GEMINI_MODEL: str = "gemini-2.0-flash"  # Modelo a usar
 
-    # JWT
+    # =========================================================================
+    # JWT - Autenticación entre Laravel y FastAPI
+    # =========================================================================
+    # IMPORTANTE: Debe ser idéntico al JWT_SECRET en Laravel .env
     JWT_SECRET: str = "change-this-in-production"
-    JWT_ALGORITHM: str = "HS256"
-    JWT_EXPIRY_MINUTES: int = 480
+    JWT_ALGORITHM: str = "HS256"       # Algoritmo de firma
+    JWT_EXPIRY_MINUTES: int = 480      # Expiración: 8 horas
 
-    # Server
-    HOST: str = "0.0.0.0"
-    PORT: int = 8000
+    # =========================================================================
+    # SERVER - Configuración del servidor FastAPI
+    # =========================================================================
+    HOST: str = "0.0.0.0"   # Escuchar en todas las interfaces
+    PORT: int = 8000         # Puerto de FastAPI
 
     class Config:
         env_file = ".env"
@@ -45,4 +78,10 @@ class Settings(BaseSettings):
 
 @lru_cache()
 def get_settings() -> Settings:
+    """
+    Retorna la configuración cacheada.
+
+    Usa @lru_cache para que solo se lea el .env una vez.
+    En producción, esto es seguro porque la config no cambia.
+    """
     return Settings()
