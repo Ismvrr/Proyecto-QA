@@ -11,13 +11,16 @@ Arquitectura:
     - MySQL: Puerto 3306 - Base de datos remota
 
 Endpoints principales:
-    GET  /health        - Health check del sistema
-    GET  /              - Info de la API
-    GET  /api/docs      - Swagger UI
-    GET  /api/redoc     - ReDoc documentation
-    POST /api/auth/*    - Autenticación (JWT)
-    POST /api/webhooks/* - Webhooks de Chat2Desk (próximo)
-    POST /api/analyze/* - Análisis AI (próximo)
+    GET  /health            - Health check del sistema
+    GET  /                  - Info de la API
+    GET  /api/docs          - Swagger UI
+    GET  /api/redoc         - ReDoc documentation
+    POST /api/auth/*        - Autenticación (JWT)
+    POST /api/extract       - Extracción de mensajes por período
+    GET  /api/sync/status   - Estado de sincronización
+    GET  /api/sync/periods  - Períodos extraídos
+    POST /api/webhooks/*    - Webhooks de Chat2Desk (próximo)
+    POST /api/analyze/*     - Análisis AI (próximo)
 """
 
 import logging
@@ -31,6 +34,7 @@ from app.config import get_settings
 from app.database import check_db_connection
 from app.logging_config import setup_logging
 from app.routes.auth import router as auth_router
+from app.routes.extraction import router as extraction_router
 
 settings = get_settings()
 
@@ -52,8 +56,9 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 # Templates Jinja2 para renderizado server-side
 templates = Jinja2Templates(directory="app/templates")
 
-# Registrar rutas de autenticación
+# Registrar rutas
 app.include_router(auth_router)
+app.include_router(extraction_router)
 
 
 @app.get("/health")
