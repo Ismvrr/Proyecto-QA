@@ -29,9 +29,12 @@
         openMenus: { dashboard: false, config: false },
         isSyncing: false,
         progress: 0,
-        syncMessage: 'Iniciando...',
-        stats: {{ json_encode($stats ?? []) }},
-        companyStatus: '{{ $company_status ?? 'shadow' }}',
+         syncMessage: 'Iniciando...',
+         stats: {{ json_encode($stats ?? []) }},
+         companyStatus: '{{ $company_status ?? 'shadow' }}',
+         realtimeEnabled: {{ ($realtime_enabled ?? false) ? 'true' : 'false' }},
+         realtimeSaving: false,
+         realtimeMessage: '',
 
         init() {
             this.$watch('activeModule', value => {
@@ -65,7 +68,7 @@
             });
         },
 
-        async startSync() {
+         async startSync() {
             const tokenInput = document.getElementById('api_token_input');
             if (!tokenInput.value) return alert('Por favor, ingresa un token.');
             this.isSyncing = true;
@@ -95,8 +98,34 @@
                 this.isSyncing = false;
                 this.progress = 0;
             }
-        }
-      }">
+         }
+         ,
+
+         async toggleRealtime() {
+             this.realtimeSaving = true;
+             this.realtimeMessage = '';
+             try {
+                 const response = await fetch('{{ route('config.realtime') }}', {
+                     method: 'PATCH',
+                     headers: {
+                         'Content-Type': 'application/json',
+                         'X-CSRF-TOKEN': '{{ csrf_token() }}'
+                     },
+                     body: JSON.stringify({ enabled: this.realtimeEnabled })
+                 });
+                 const result = await response.json();
+                 if (!response.ok || result.status !== 'success') {
+                     throw new Error(result.message || 'No se pudo actualizar real-time.');
+                 }
+                 this.realtimeMessage = result.message;
+             } catch (error) {
+                 this.realtimeEnabled = !this.realtimeEnabled;
+                 this.realtimeMessage = error.message;
+             } finally {
+                 this.realtimeSaving = false;
+             }
+         }
+       }">
 
     <nav class="w-16 bg-c2d-dark-blue h-screen flex flex-col items-center py-4 z-30 shadow-2xl shrink-0">
         <button @click="activeApp = 'c2d'; sidebarOpen = true" class="w-12 h-12 rounded-xl mb-4 flex items-center justify-center bg-c2d-blue text-white shadow-lg">
@@ -168,6 +197,10 @@
                             class="ml-10 p-2 text-slate-600 hover:text-c2d-blue rounded-lg cursor-pointer transition-all text-sm font-medium">
                             Conectar a C2D OnCloud
                         </li>
+                        <li @click="activeModule = 'realtime'"
+                            class="ml-10 p-2 text-slate-600 hover:text-c2d-blue rounded-lg cursor-pointer transition-all text-sm font-medium">
+                            Sincronización real-time
+                        </li>
                     </ul>
                 </li>
 
@@ -223,6 +256,42 @@
                             </div>
                         </template>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <div x-show="activeModule === 'realtime'" x-cloak class="p-10 overflow-y-auto bg-white flex-1">
+            <div class="max-w-3xl mx-auto">
+                <div class="border-b border-slate-100 pb-6 mb-8">
+                    <h1 class="text-3xl text-c2d-dark-blue font-nunito">Sincronización real-time</h1>
+                    <p class="text-slate-400 text-sm mt-1">Recibe mensajes nuevos de Chat2Desk mediante webhooks.</p>
+                </div>
+
+                <div class="rounded-3xl border border-blue-50 bg-slate-50 p-8">
+                    <div class="flex items-center justify-between gap-6">
+                        <div>
+                            <h2 class="font-nunito text-xl text-c2d-dark-blue">Activar en API_C2D</h2>
+                            <p class="text-sm text-slate-500 mt-2">
+                                Esto habilita el modo real-time dentro de nuestra plataforma.
+                                La cuenta todavía debe apuntarse manualmente en Chat2Desk.
+                            </p>
+                        </div>
+                        <button type="button" @click="realtimeEnabled = !realtimeEnabled; toggleRealtime()"
+                                :disabled="realtimeSaving"
+                                :class="realtimeEnabled ? 'bg-c2d-blue' : 'bg-slate-300'"
+                                class="relative inline-flex h-8 w-14 shrink-0 rounded-full transition-colors disabled:opacity-50">
+                            <span :class="realtimeEnabled ? 'translate-x-7' : 'translate-x-1'"
+                                  class="mt-1 inline-block h-6 w-6 rounded-full bg-white shadow transition-transform"></span>
+                        </button>
+                    </div>
+                    <p x-show="realtimeMessage" x-text="realtimeMessage" class="mt-6 rounded-xl bg-white p-4 text-xs text-slate-600"></p>
+                </div>
+
+                <div class="mt-6 rounded-3xl border border-amber-100 bg-amber-50 p-8">
+                    <h2 class="font-nunito text-lg text-amber-900">Configuración pendiente en Chat2Desk</h2>
+                    <p class="mt-2 text-sm text-amber-800">Registra esta URL en cada cuenta de Chat2Desk:</p>
+                    <code class="mt-4 block break-all rounded-xl bg-white p-4 text-sm text-slate-700">{{ $webhook_url }}</code>
+                    <p class="mt-4 text-xs text-amber-800">Eventos recomendados: inbox, outbox, imported_message.</p>
                 </div>
             </div>
         </div>

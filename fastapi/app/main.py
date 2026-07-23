@@ -19,7 +19,7 @@ Endpoints principales:
     POST /api/extract       - Extracción de mensajes por período
     GET  /api/sync/status   - Estado de sincronización
     GET  /api/sync/periods  - Períodos extraídos
-    POST /api/webhooks/*    - Webhooks de Chat2Desk (próximo)
+    POST /api/webhooks/*    - Webhooks de Chat2Desk
     POST /api/analyze/*     - Análisis AI (próximo)
 """
 
@@ -35,6 +35,7 @@ from app.database import check_db_connection
 from app.logging_config import setup_logging
 from app.routes.auth import router as auth_router
 from app.routes.extraction import router as extraction_router
+from app.routes.webhooks import router as webhooks_router
 
 settings = get_settings()
 
@@ -59,6 +60,7 @@ templates = Jinja2Templates(directory="app/templates")
 # Registrar rutas
 app.include_router(auth_router)
 app.include_router(extraction_router)
+app.include_router(webhooks_router)
 
 
 @app.get("/health")
