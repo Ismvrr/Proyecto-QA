@@ -35,6 +35,8 @@ class CompanySyncController extends Controller
             [
                 'name' => $data['company_name'],
                 'api_token' => $token,
+                // FastAPI valida el webhook con este hash sin leer el token cifrado.
+                'api_token_hash' => hash('sha256', $token),
                 'status' => 'active',
                 'remote_id' => $data['companyID'],
                 'partner_id' => $data['partnerID'],
@@ -105,5 +107,29 @@ class CompanySyncController extends Controller
         }
 
         return response()->json(['status' => 'success', 'total' => $totalProcessed]);
+    }
+
+    /**
+     * Activa o desactiva el modo real-time para la empresa del usuario.
+     * La activación en Chat2Desk sigue siendo un paso separado por cuenta.
+     */
+    public function updateRealtime(Request $request)
+    {
+        $request->validate(['enabled' => 'required|boolean']);
+        $company = Auth::user()->company;
+
+        if (!$company) {
+            return response()->json(['status' => 'error', 'message' => 'No hay compañía vinculada.'], 400);
+        }
+
+        $company->update(['realtime_enabled' => $request->boolean('enabled')]);
+
+        return response()->json([
+            'status' => 'success',
+            'realtime_enabled' => $company->realtime_enabled,
+            'message' => $company->realtime_enabled
+                ? 'Real-time activado en API_C2D. Falta apuntar esta cuenta en Chat2Desk.'
+                : 'Real-time desactivado en API_C2D.',
+        ]);
     }
 }

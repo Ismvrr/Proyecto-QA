@@ -19,6 +19,7 @@ Route::middleware('auth')->group(function () {
     // Dashboard con detección de estatus de empresa
     Route::get('/dashboard', function () {
     $user = Auth::user();
+    $company = $user->company;
     
     // Obtenemos los conteos reales de la DB para la gráfica
     $stats = \App\Models\User::where('company_id', $user->company_id)
@@ -30,7 +31,9 @@ Route::middleware('auth')->group(function () {
 
     return view('dashboard', [
         'stats' => $stats,
-        'company_status' => $user->company ? $user->company->status : 'active'
+        'company_status' => $company ? $company->status : 'active',
+        'realtime_enabled' => $company ? $company->realtime_enabled : false,
+        'webhook_url' => url('/api/webhooks/c2d'),
     ]);
     })->middleware(['auth'])->name('dashboard');
 
@@ -40,6 +43,7 @@ Route::middleware('auth')->group(function () {
     Route::prefix('config')->group(function () {
         Route::post('/sync-token', [CompanySyncController::class, 'syncToken'])->name('config.sync.token');
         Route::post('/sync-operators', [CompanySyncController::class, 'syncOperators'])->name('config.sync.operators');
+        Route::patch('/realtime', [CompanySyncController::class, 'updateRealtime'])->name('config.realtime');
     });
 
     Route::get('/reports/operators', [ReportController::class, 'operators'])->name('reports.operators');
