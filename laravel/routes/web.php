@@ -4,6 +4,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\CompanySyncController;
 use Illuminate\Support\Facades\Auth;
 use App\Http\Controllers\ReportController;
+use App\Http\Controllers\ExtractionController;
 
 Route::redirect('/', '/login');
 
@@ -31,7 +32,8 @@ Route::middleware('auth')->group(function () {
 
     return view('dashboard', [
         'stats' => $stats,
-        'company_status' => $company ? $company->status : 'active',
+        // Sin empresa vinculada debe mostrarse el formulario de conexión.
+        'company_status' => $company ? $company->status : 'unconfigured',
         'realtime_enabled' => $company ? $company->realtime_enabled : false,
         'webhook_url' => url('/api/webhooks/c2d'),
     ]);
@@ -44,6 +46,9 @@ Route::middleware('auth')->group(function () {
         Route::post('/sync-token', [CompanySyncController::class, 'syncToken'])->name('config.sync.token');
         Route::post('/sync-operators', [CompanySyncController::class, 'syncOperators'])->name('config.sync.operators');
         Route::patch('/realtime', [CompanySyncController::class, 'updateRealtime'])->name('config.realtime');
+        Route::post('/extract', [ExtractionController::class, 'start'])->name('config.extract');
+        Route::get('/sync-status', [ExtractionController::class, 'status'])->name('config.sync.status');
+        Route::get('/messages', [ExtractionController::class, 'messages'])->name('config.messages');
     });
 
     Route::get('/reports/operators', [ReportController::class, 'operators'])->name('reports.operators');

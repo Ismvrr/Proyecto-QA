@@ -32,6 +32,7 @@ use App\Models\User;
 use App\Services\Chat2DeskService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cookie;
 use Firebase\JWT\JWT;
 use Firebase\JWT\Key;
 
@@ -196,7 +197,8 @@ class Chat2DeskLoginController extends Controller
     {
         Auth::logout();
         $response = redirect('/login');
-        $response->forgetCookie('token');
+        // RedirectResponse has no forgetCookie method; queue the deletion instead.
+        $response->withCookie(Cookie::forget('token', '/', '.chat2desk.support'));
         return $response;
     }
 }

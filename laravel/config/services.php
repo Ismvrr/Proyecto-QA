@@ -9,6 +9,10 @@ return [
 
     'jwt_secret' => env('JWT_SECRET'),
 
+    'fastapi' => [
+        'url' => env('FASTAPI_INTERNAL_URL', 'http://127.0.0.1:8000'),
+    ],
+
     /*
     |--------------------------------------------------------------------------
     | Third Party Services

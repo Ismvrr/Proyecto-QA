@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 use App\Models\Company;
 use App\Models\User;
 
@@ -16,14 +17,35 @@ class CompanySyncController extends Controller
         $request->validate(['api_token' => 'required|string']);
         $token = $request->api_token;
 
-        $response = Http::withHeaders(['Authorization' => $token])
+        $response = Http::timeout(20)->withHeaders(['Authorization' => $token])
             ->get('https://api.chat2desk.com.mx/v1/companies/api_info');
 
-        if (!$response->successful() || $response->json('status') !== 'success') {
-            return response()->json(['status' => 'error', 'message' => 'Token inválido.'], 400);
+        $payload = $response->json();
+        if (!$response->successful() || ($payload['status'] ?? null) !== 'success') {
+            Log::warning('Chat2Desk company sync rejected token', [
+                'http_status' => $response->status(),
+                'c2d_status' => $payload['status'] ?? null,
+                'error' => $payload['error'] ?? $payload['errors'] ?? null,
+            ]);
+
+            return response()->json([
+                'status' => 'error',
+                'message' => $payload['message'] ?? $payload['error'] ?? 'Chat2Desk rechazó el token.',
+            ], 400);
         }
 
-        $data = $response->json('data');
+        $data = $payload['data'] ?? [];
+        if (empty($data['companyID']) || empty($data['company_name'])) {
+            Log::error('Chat2Desk company sync returned incomplete data', [
+                'http_status' => $response->status(),
+                'keys' => array_keys($data),
+            ]);
+
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Chat2Desk devolvió una respuesta incompleta de empresa.',
+            ], 502);
+        }
 
         // Validación: Solo el administrador puede conectar
         if (Auth::user()->email !== $data['admin_email']) {
@@ -68,7 +90,7 @@ class CompanySyncController extends Controller
             $limit = 20;
 
             do {
-                $response = Http::withHeaders(['Authorization' => $company->api_token])
+                $response = Http::timeout(20)->withHeaders(['Authorization' => $company->api_token])
                     ->get("https://api.chat2desk.com.mx/v1/operators/", [
                         'status' => 'enabled',
                         'role' => $role,

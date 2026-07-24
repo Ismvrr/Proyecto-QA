@@ -18,9 +18,13 @@
         .iframe-container { height: calc(100vh - 64px); }
         .sidebar-transition { transition: width 0.3s ease; }
         [x-cloak] { display: none !important; }
+        .dashboard-scroll { height: calc(100vh - 4rem); overflow-y: scroll; overscroll-behavior: contain; }
+        .dashboard-scroll::-webkit-scrollbar { width: 12px; }
+        .dashboard-scroll::-webkit-scrollbar-track { background: #f1f5f9; }
+        .dashboard-scroll::-webkit-scrollbar-thumb { background: #205B9B; border-radius: 999px; border: 3px solid #f1f5f9; }
     </style>
 </head>
-<body class="bg-slate-100 flex overflow-hidden" 
+<body class="bg-slate-100 flex h-screen overflow-hidden"
       x-data="{ 
         activeApp: 'c2d', 
         activeModule: 'chats', 
@@ -35,6 +39,15 @@
          realtimeEnabled: {{ ($realtime_enabled ?? false) ? 'true' : 'false' }},
          realtimeSaving: false,
          realtimeMessage: '',
+         extractionYear: new Date().getFullYear(),
+         extractionMonth: new Date().getMonth() + 1,
+         extractionSaving: false,
+         extractionMessage: '',
+         syncPeriods: [],
+         selectedMessages: [],
+         selectedPeriod: '',
+         messagesLoading: false,
+         messageFilters: { dialog_id: '', client_id: '', message_type: '', date_from: '', date_to: '' },
 
         init() {
             this.$watch('activeModule', value => {
@@ -75,13 +88,18 @@
             this.progress = 10;
             this.syncMessage = 'Validando conexión...';
             try {
-                let response = await fetch('{{ route('config.sync.token') }}', {
+                 let response = await fetch('{{ route('config.sync.token') }}', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}' },
-                    body: JSON.stringify({ api_token: tokenInput.value })
-                });
-                let result = await response.json();
-                if (result.status === 'error') throw new Error(result.message);
+                     body: JSON.stringify({ api_token: tokenInput.value })
+                 });
+                 const responseType = response.headers.get('content-type') || '';
+                 if (!responseType.includes('application/json')) {
+                     throw new Error('El servidor devolvió una página HTML (HTTP ' + response.status + '). Revisa tu sesión e inténtalo de nuevo.');
+                 }
+                 let result = await response.json();
+                 if (!response.ok) throw new Error(result.message || 'No se pudo conectar con Chat2Desk.');
+                 if (result.status === 'error') throw new Error(result.message);
                 this.progress = 40;
                 this.syncMessage = 'Sincronizando operadores...';
                 let syncRes = await fetch('{{ route('config.sync.operators') }}', {
@@ -123,6 +141,59 @@
                  this.realtimeMessage = error.message;
              } finally {
                  this.realtimeSaving = false;
+             }
+         }
+         ,
+
+         async startExtraction() {
+             this.extractionSaving = true;
+             this.extractionMessage = 'Iniciando extracción...';
+             try {
+                 const response = await fetch('{{ route('config.extract') }}', {
+                     method: 'POST',
+                     headers: {
+                         'Content-Type': 'application/json',
+                         'X-CSRF-TOKEN': '{{ csrf_token() }}'
+                     },
+                     body: JSON.stringify({
+                         year: Number(this.extractionYear),
+                         month: Number(this.extractionMonth),
+                         exclude_autoreply: true
+                     })
+                 });
+                 const result = await response.json();
+                 if (!response.ok) throw new Error(result.detail || result.message || 'No se pudo iniciar.');
+                 this.extractionMessage = 'Extracción iniciada. Revisa el estado en unos segundos.';
+                 await this.loadSyncStatus();
+             } catch (error) {
+                 this.extractionMessage = error.message;
+             } finally {
+                 this.extractionSaving = false;
+             }
+         },
+
+         async loadSyncStatus() {
+             const response = await fetch('{{ route('config.sync.status') }}', { headers: { 'Accept': 'application/json' } });
+             if (response.ok) {
+                 this.syncPeriods = (await response.json()).periods || [];
+             }
+         },
+
+         async viewMessages(period) {
+             this.messagesLoading = true;
+             this.selectedPeriod = period.year + '-' + String(period.month).padStart(2, '0');
+             try {
+                 const params = new URLSearchParams({ year: period.year, month: period.month, ...this.messageFilters });
+                 for (const [key, value] of [...params.entries()]) if (!value) params.delete(key);
+                 const response = await fetch('{{ route('config.messages') }}?' + params.toString(), { headers: { 'Accept': 'application/json' } });
+                 const result = await response.json();
+                 if (!response.ok) throw new Error(result.detail || result.message || 'No se pudieron consultar los mensajes.');
+                 this.selectedMessages = result.messages || [];
+                 this.$nextTick(() => document.getElementById('messages-results')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+             } catch (error) {
+                 this.extractionMessage = error.message;
+             } finally {
+                 this.messagesLoading = false;
              }
          }
        }">
@@ -201,6 +272,10 @@
                             class="ml-10 p-2 text-slate-600 hover:text-c2d-blue rounded-lg cursor-pointer transition-all text-sm font-medium">
                             Sincronización real-time
                         </li>
+                        <li @click="activeModule = 'extraction'; loadSyncStatus()"
+                            class="ml-10 p-2 text-slate-600 hover:text-c2d-blue rounded-lg cursor-pointer transition-all text-sm font-medium">
+                            Extraer conversaciones
+                        </li>
                     </ul>
                 </li>
 
@@ -208,7 +283,7 @@
         </nav>
     </aside>
 
-    <main class="flex-1 flex flex-col relative z-10 min-w-0 bg-white">
+    <main class="flex h-screen min-h-0 flex-1 flex-col relative z-10 min-w-0 overflow-hidden bg-white">
         <header class="h-16 bg-white border-b border-slate-100 flex items-center justify-between px-8 shrink-0">
             <div class="font-nunito text-c2d-dark-blue">
                 Hola, <span class="text-slate-900 font-bold">{{ Auth::user()->first_name ?? 'Administrator' }}</span>
@@ -292,6 +367,87 @@
                     <p class="mt-2 text-sm text-amber-800">Registra esta URL en cada cuenta de Chat2Desk:</p>
                     <code class="mt-4 block break-all rounded-xl bg-white p-4 text-sm text-slate-700">{{ $webhook_url }}</code>
                     <p class="mt-4 text-xs text-amber-800">Eventos recomendados: inbox, outbox, imported_message.</p>
+                </div>
+            </div>
+        </div>
+
+        <div x-show="activeModule === 'extraction'" x-cloak class="dashboard-scroll min-h-0 flex-1 p-10 bg-white" style="scrollbar-width: auto;">
+            <div class="max-w-4xl mx-auto">
+                <div class="border-b border-slate-100 pb-6 mb-8">
+                    <h1 class="text-3xl text-c2d-dark-blue font-nunito">Extraer conversaciones</h1>
+                    <p class="text-slate-400 text-sm mt-1">Selecciona el periodo que quieres guardar desde Chat2Desk.</p>
+                </div>
+                <div class="rounded-3xl border border-blue-50 bg-slate-50 p-8">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                        <label class="text-xs font-bold uppercase tracking-widest text-slate-500">
+                            Año
+                            <input type="number" min="2020" max="2030" x-model="extractionYear" class="mt-2 w-full rounded-xl border-slate-200 bg-white px-4 py-3">
+                        </label>
+                        <label class="text-xs font-bold uppercase tracking-widest text-slate-500">
+                            Mes
+                            <select x-model="extractionMonth" class="mt-2 w-full rounded-xl border-slate-200 bg-white px-4 py-3">
+                                @foreach(range(1, 12) as $month)
+                                    <option value="{{ $month }}">{{ DateTime::createFromFormat('!m', $month)->format('F') }}</option>
+                                @endforeach
+                            </select>
+                        </label>
+                    </div>
+                    <button type="button" @click="startExtraction()" :disabled="extractionSaving"
+                            class="mt-6 rounded-xl bg-c2d-dark-blue px-6 py-3 text-xs font-bold uppercase tracking-widest text-white hover:bg-c2d-blue disabled:opacity-50">
+                        <span x-text="extractionSaving ? 'Procesando...' : 'Iniciar extracción'"></span>
+                    </button>
+                    <p x-show="extractionMessage" x-text="extractionMessage" class="mt-4 rounded-xl bg-white p-4 text-sm text-slate-600"></p>
+                </div>
+
+                <div class="mt-8">
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="font-nunito text-xl text-c2d-dark-blue">Estado de sincronización</h2>
+                        <button @click="loadSyncStatus()" class="text-xs font-bold uppercase tracking-widest text-c2d-blue">Actualizar</button>
+                    </div>
+                    <div class="overflow-hidden rounded-2xl border border-slate-100">
+                        <table class="w-full text-left text-sm">
+                            <thead class="bg-slate-50 text-xs uppercase tracking-widest text-slate-500">
+                                <tr><th class="px-5 py-4">Periodo</th><th class="px-5 py-4">Estado</th><th class="px-5 py-4">Conversaciones</th><th class="px-5 py-4">Mensajes</th><th class="px-5 py-4">Consulta</th></tr>
+                            </thead>
+                            <tbody>
+                                <template x-for="period in syncPeriods" :key="period.id">
+                                    <tr class="border-t border-slate-100"><td class="px-5 py-4" x-text="period.year + '-' + String(period.month).padStart(2, '0')"></td><td class="px-5 py-4 capitalize" x-text="period.status"></td><td class="px-5 py-4" x-text="period.total_dialogs"></td><td class="px-5 py-4" x-text="period.total_messages"></td><td class="px-5 py-4"><button @click="viewMessages(period)" class="text-xs font-bold uppercase tracking-widest text-c2d-blue" x-text="messagesLoading && selectedPeriod === (period.year + '-' + String(period.month).padStart(2, '0')) ? 'Cargando...' : 'Ver mensajes'"></button></td></tr>
+                                </template>
+                                <tr x-show="syncPeriods.length === 0"><td colspan="5" class="px-5 py-8 text-center text-slate-400">Todavía no hay periodos registrados.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div x-show="selectedPeriod" class="mt-8 rounded-3xl border border-blue-50 bg-slate-50 p-6">
+                    <h2 class="font-nunito text-lg text-c2d-dark-blue">Filtros de mensajes</h2>
+                    <div class="mt-4 grid grid-cols-1 gap-4 md:grid-cols-5">
+                        <input x-model="messageFilters.dialog_id" placeholder="Dialog ID" class="rounded-xl border-slate-200 bg-white px-3 py-2 text-sm">
+                        <input x-model="messageFilters.client_id" placeholder="Client ID" class="rounded-xl border-slate-200 bg-white px-3 py-2 text-sm">
+                        <select x-model="messageFilters.message_type" class="rounded-xl border-slate-200 bg-white px-3 py-2 text-sm">
+                            <option value="">Todos los tipos</option>
+                            <option value="from_client">from_client</option>
+                            <option value="to_client">to_client</option>
+                            <option value="autoreply">autoreply</option>
+                        </select>
+                        <input type="date" x-model="messageFilters.date_from" class="rounded-xl border-slate-200 bg-white px-3 py-2 text-sm">
+                        <input type="date" x-model="messageFilters.date_to" class="rounded-xl border-slate-200 bg-white px-3 py-2 text-sm">
+                    </div>
+                    <button @click="viewMessages({ year: Number(selectedPeriod.slice(0, 4)), month: Number(selectedPeriod.slice(5, 7)) })" class="mt-4 rounded-xl bg-c2d-blue px-5 py-2 text-xs font-bold uppercase tracking-widest text-white">Aplicar filtros</button>
+                </div>
+
+                <div id="messages-results" x-show="selectedPeriod" class="mt-8">
+                    <h2 class="font-nunito text-xl text-c2d-dark-blue mb-4">Mensajes del periodo <span x-text="selectedPeriod"></span></h2>
+                    <div class="space-y-3">
+                        <template x-for="message in selectedMessages" :key="message.id">
+                            <article class="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+                                <div class="flex justify-between gap-4 text-xs text-slate-400"><span x-text="message.tipo"></span><span x-text="message.fecha_creacion"></span></div>
+                                <p class="mt-3 text-sm text-slate-700 whitespace-pre-wrap" x-text="message.texto || '(sin texto)'"></p>
+                                <p class="mt-3 text-[10px] uppercase tracking-widest text-slate-400" x-text="'Request ' + message.request_id + ' · Dialog ' + message.dialog_id"></p>
+                            </article>
+                        </template>
+                        <p x-show="selectedPeriod && selectedMessages.length === 0 && !messagesLoading" class="text-sm text-slate-400">No hay mensajes guardados para este periodo.</p>
+                    </div>
                 </div>
             </div>
         </div>

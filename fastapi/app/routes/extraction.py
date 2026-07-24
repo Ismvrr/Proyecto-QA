@@ -36,9 +36,9 @@ BATCH_SIZE = 500
 # SQL para insertar mensaje con deduplicación
 INSERT_MESSAGE_SQL = """
 INSERT IGNORE INTO mensajes_request 
-    (request_id, dialog_id, mensaje_id, client_id, operator_id, tipo, texto, transport, fecha_creacion)
+    (company_id, request_id, dialog_id, mensaje_id, client_id, operator_id, tipo, texto, transport, fecha_creacion)
 VALUES 
-    (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+    (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 """
 
 
@@ -107,11 +107,12 @@ def _run_extraction(
             logger.info(f"Found {len(dialogs)} dialogs total")
 
             # 4. Calcular rango de fechas del mes
-            start_date = f"{year}-{month:02d}-01 00:00"
+            # C2D requires date filters in dd-mm-yyyy format.
+            start_date = f"01-{month:02d}-{year}"
             if month == 12:
-                end_date = f"{year + 1}-01-01 00:00"
+                end_date = f"01-01-{year + 1}"
             else:
-                end_date = f"{year}-{month + 1:02d}-01 00:00"
+                end_date = f"01-{month + 1:02d}-{year}"
 
             # 5. Extraer mensajes de cada dialog
             total_dialogs = 0
@@ -146,6 +147,7 @@ def _run_extraction(
                     for raw_msg in messages:
                         clean = Chat2DeskClient.clean_message(raw_msg, exclude_types)
                         if clean:
+                            clean["company_id"] = company_id
                             batch_messages.append(clean)
                             total_messages += 1
 
@@ -200,7 +202,7 @@ def _insert_batch(cursor, messages: list):
 
     values = [
         (
-            m["request_id"], m["dialog_id"], m["mensaje_id"],
+            m["company_id"], m["request_id"], m["dialog_id"], m["mensaje_id"],
             m["client_id"], m["operator_id"], m["tipo"],
             m["texto"], m["transport"], m["fecha_creacion"]
         )
@@ -257,12 +259,13 @@ async def start_extraction(
 
                 # Verificar si ya se extrajo
                 cursor.execute(
-                    """SELECT status FROM extracted_periods 
+                    """SELECT status, total_messages FROM extracted_periods
                        WHERE company_id=%s AND year=%s AND month=%s""",
                     (request.company_id, request.year, request.month)
                 )
                 existing = cursor.fetchone()
-                if existing and existing["status"] == "completed":
+                # Permite reintentar periodos que terminaron sin mensajes por un error de filtros.
+                if existing and existing["status"] == "completed" and existing["total_messages"] > 0:
                     raise HTTPException(
                         status_code=400,
                         detail=f"Period {request.year}-{request.month:02d} already extracted"
@@ -395,3 +398,66 @@ async def get_extracted_periods(
     except Exception as e:
         logger.error(f"Error getting periods: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/messages")
+async def get_extracted_messages(
+    company_id: int,
+    year: int,
+    month: int,
+    limit: int = 100,
+    dialog_id: Optional[str] = None,
+    client_id: Optional[str] = None,
+    message_type: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    user: dict = Depends(get_current_user),
+):
+    """Returns messages extracted for one company and calendar period."""
+    if not 1 <= month <= 12 or not 1 <= limit <= 500:
+        raise HTTPException(status_code=400, detail="Invalid month or limit")
+
+    try:
+        filters = [
+            "company_id = %s",
+            "YEAR(fecha_creacion) = %s",
+            "MONTH(fecha_creacion) = %s",
+        ]
+        params = [company_id, year, month]
+
+        if dialog_id:
+            filters.append("dialog_id = %s")
+            params.append(dialog_id)
+        if client_id:
+            filters.append("client_id = %s")
+            params.append(client_id)
+        if message_type:
+            filters.append("tipo = %s")
+            params.append(message_type)
+        if date_from:
+            filters.append("DATE(fecha_creacion) >= %s")
+            params.append(date_from)
+        if date_to:
+            filters.append("DATE(fecha_creacion) <= %s")
+            params.append(date_to)
+
+        with get_db() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    f"""SELECT id, request_id, dialog_id, mensaje_id, client_id,
+                              operator_id, tipo, texto, transport, fecha_creacion
+                       FROM mensajes_request
+                       WHERE {' AND '.join(filters)}
+                       ORDER BY fecha_creacion ASC, id ASC
+                       LIMIT %s""",
+                    (*params, limit),
+                )
+                return {
+                    "company_id": company_id,
+                    "year": year,
+                    "month": month,
+                    "messages": cursor.fetchall(),
+                }
+    except Exception as e:
+        logger.error(f"Error getting extracted messages: {e}")
+        raise HTTPException(status_code=500, detail="Could not retrieve messages")

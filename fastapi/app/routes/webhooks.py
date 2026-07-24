@@ -29,7 +29,7 @@ SUPPORTED_EVENTS = {"inbox", "outbox", "imported_message"}
 
 INSERT_MESSAGE_SQL = """
 INSERT IGNORE INTO mensajes_request
-    (request_id, dialog_id, mensaje_id, client_id, operator_id, tipo, texto, transport, fecha_creacion)
+    (company_id, request_id, dialog_id, mensaje_id, client_id, operator_id, tipo, texto, transport, fecha_creacion)
 VALUES
     (%s, %s, %s, %s, %s, %s, %s, %s, %s)
 """
@@ -128,6 +128,7 @@ async def receive_c2d_webhook(
             cursor.execute(
                 INSERT_MESSAGE_SQL,
                 (
+                    company["id"],
                     mapped_message["request_id"],
                     mapped_message["dialog_id"],
                     mapped_message["mensaje_id"],
