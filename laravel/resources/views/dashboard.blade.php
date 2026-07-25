@@ -47,7 +47,14 @@
          selectedMessages: [],
          selectedPeriod: '',
          messagesLoading: false,
-         messageFilters: { dialog_id: '', client_id: '', message_type: '', date_from: '', date_to: '' },
+         conversations: [],
+         conversationPage: 1,
+         conversationTotal: 0,
+         conversationPeriod: '',
+         conversationLoading: false,
+         selectedConversation: null,
+         copiedId: '',
+         messageFilters: { dialog_id: '', request_id: '', client_id: '', message_type: '', date_from: '', date_to: '' },
 
         init() {
             this.$watch('activeModule', value => {
@@ -195,6 +202,57 @@
              } finally {
                  this.messagesLoading = false;
              }
+         }
+         ,
+
+         async loadConversations(period, page = 1) {
+             this.conversationLoading = true;
+             this.conversationPeriod = period.year + '-' + String(period.month).padStart(2, '0');
+             this.selectedPeriod = this.conversationPeriod;
+             this.selectedMessages = [];
+             this.selectedConversation = null;
+             this.messageFilters = { dialog_id: '', request_id: '', client_id: '', message_type: '', date_from: '', date_to: '' };
+             this.conversationPage = page;
+             try {
+                 const response = await fetch('{{ route('config.conversations') }}?year=' + period.year + '&month=' + period.month + '&page=' + page, { headers: { 'Accept': 'application/json' } });
+                 const result = await response.json();
+                 if (!response.ok) throw new Error(result.detail || result.message || 'No se pudieron consultar las conversaciones.');
+                 this.conversations = result.conversations || [];
+                 this.conversationTotal = result.total || 0;
+                 this.selectedConversation = null;
+                 this.$nextTick(() => document.getElementById('conversation-results')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+             } catch (error) {
+                 this.extractionMessage = error.message;
+             } finally {
+                 this.conversationLoading = false;
+             }
+         },
+
+         async viewConversation(conversation) {
+             const [year, month] = this.conversationPeriod.split('-');
+             const params = new URLSearchParams({ year, month, request_id: conversation.request_id });
+             const response = await fetch('{{ url('/config/conversations') }}/' + encodeURIComponent(conversation.dialog_id) + '?' + params.toString(), { headers: { 'Accept': 'application/json' } });
+             const result = await response.json();
+             if (!response.ok) throw new Error(result.detail || result.message || 'No se pudo consultar la conversación.');
+             this.selectedConversation = result;
+             this.$nextTick(() => document.getElementById('conversation-detail')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+         },
+
+         async copyId(value, label) {
+             try {
+                 await navigator.clipboard.writeText(String(value));
+             } catch (error) {
+                 const input = document.createElement('textarea');
+                 input.value = String(value);
+                 input.style.position = 'fixed';
+                 input.style.opacity = '0';
+                 document.body.appendChild(input);
+                 input.select();
+                 document.execCommand('copy');
+                 input.remove();
+             }
+             this.copiedId = label;
+             setTimeout(() => this.copiedId = '', 1500);
          }
        }">
 
@@ -411,7 +469,7 @@
                             </thead>
                             <tbody>
                                 <template x-for="period in syncPeriods" :key="period.id">
-                                    <tr class="border-t border-slate-100"><td class="px-5 py-4" x-text="period.year + '-' + String(period.month).padStart(2, '0')"></td><td class="px-5 py-4 capitalize" x-text="period.status"></td><td class="px-5 py-4" x-text="period.total_dialogs"></td><td class="px-5 py-4" x-text="period.total_messages"></td><td class="px-5 py-4"><button @click="viewMessages(period)" class="text-xs font-bold uppercase tracking-widest text-c2d-blue" x-text="messagesLoading && selectedPeriod === (period.year + '-' + String(period.month).padStart(2, '0')) ? 'Cargando...' : 'Ver mensajes'"></button></td></tr>
+                                    <tr class="border-t border-slate-100"><td class="px-5 py-4" x-text="period.year + '-' + String(period.month).padStart(2, '0')"></td><td class="px-5 py-4 capitalize" x-text="period.status"></td><td class="px-5 py-4" x-text="period.total_dialogs"></td><td class="px-5 py-4" x-text="period.total_messages"></td><td class="px-5 py-4"><button @click="loadConversations(period)" class="text-xs font-bold uppercase tracking-widest text-c2d-blue" x-text="conversationLoading && conversationPeriod === (period.year + '-' + String(period.month).padStart(2, '0')) ? 'Cargando...' : 'Ver conversaciones'"></button></td></tr>
                                 </template>
                                 <tr x-show="syncPeriods.length === 0"><td colspan="5" class="px-5 py-8 text-center text-slate-400">Todavía no hay periodos registrados.</td></tr>
                             </tbody>
@@ -419,10 +477,62 @@
                     </div>
                 </div>
 
+                <div id="conversation-results" x-show="conversationPeriod" class="mt-8 rounded-3xl border border-blue-50 bg-slate-50 p-6">
+                    <div class="flex items-center justify-between gap-4">
+                        <h2 class="font-nunito text-xl text-c2d-dark-blue">Conversaciones <span x-text="conversationPeriod"></span></h2>
+                        <span class="text-xs text-slate-400" x-text="conversationTotal + ' conversaciones'"></span>
+                    </div>
+                    <div class="mt-4 grid grid-cols-1 gap-4">
+                        <template x-for="conversation in conversations" :key="conversation.dialog_id + '-' + conversation.request_id">
+                            <article @click="viewConversation(conversation)" tabindex="0" @keydown.enter="viewConversation(conversation)" class="w-full cursor-pointer rounded-2xl border border-slate-100 bg-white p-5 text-left shadow-sm transition hover:border-c2d-blue hover:shadow-md">
+                                <div class="flex flex-wrap items-center justify-between gap-3">
+                                    <div class="flex flex-wrap items-center gap-3">
+                                        <span class="font-bold text-c2d-dark-blue">Dialog <span class="select-text" x-text="conversation.dialog_id"></span></span>
+                                        <button type="button" @click.stop="copyId(conversation.dialog_id, 'dialog-' + conversation.dialog_id)" class="rounded-lg border border-blue-100 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-c2d-blue hover:bg-blue-50" x-text="copiedId === ('dialog-' + conversation.dialog_id) ? 'Copiado' : 'Copiar ID'"></button>
+                                    </div>
+                                    <span class="rounded-full bg-blue-50 px-3 py-1 text-xs text-c2d-blue" x-text="conversation.total_messages + ' mensajes'"></span>
+                                </div>
+                                <div class="mt-3 grid grid-cols-1 gap-2 text-xs text-slate-500 sm:grid-cols-3">
+                                    <span class="flex items-center gap-2">Request: <span class="select-text" x-text="conversation.request_id"></span><button type="button" @click.stop="copyId(conversation.request_id, 'request-' + conversation.request_id)" class="rounded border border-slate-200 px-1.5 py-0.5 text-[9px] font-bold uppercase text-slate-500 hover:bg-slate-50" x-text="copiedId === ('request-' + conversation.request_id) ? 'OK' : 'Copiar'"></button></span>
+                                    <span x-text="'Cliente: ' + conversation.client_id"></span>
+                                    <span x-text="conversation.first_message + ' → ' + conversation.last_message"></span>
+                                </div>
+                            </article>
+                        </template>
+                        <p x-show="conversations.length === 0 && !conversationLoading" class="py-6 text-center text-sm text-slate-400">No hay conversaciones para este periodo.</p>
+                    </div>
+                    <div class="mt-5 flex items-center justify-between" x-show="conversationTotal > 20">
+                        <button @click="loadConversations({ year: Number(conversationPeriod.slice(0, 4)), month: Number(conversationPeriod.slice(5, 7)) }, conversationPage - 1)" :disabled="conversationPage <= 1" class="rounded-lg px-3 py-2 text-xs font-bold text-c2d-blue disabled:opacity-30">Anterior</button>
+                        <span class="text-xs text-slate-400" x-text="'Página ' + conversationPage"></span>
+                        <button @click="loadConversations({ year: Number(conversationPeriod.slice(0, 4)), month: Number(conversationPeriod.slice(5, 7)) }, conversationPage + 1)" :disabled="conversationPage * 20 >= conversationTotal" class="rounded-lg px-3 py-2 text-xs font-bold text-c2d-blue disabled:opacity-30">Siguiente</button>
+                    </div>
+                </div>
+
+                <div id="conversation-detail" x-show="selectedConversation" class="mt-8 rounded-3xl border border-blue-50 bg-white p-6 shadow-sm">
+                    <div class="flex items-center justify-between gap-4 border-b border-slate-100 pb-4">
+                        <div>
+                            <h2 class="font-nunito text-xl text-c2d-dark-blue">Timeline de conversación</h2>
+                            <p class="text-xs text-slate-400" x-text="selectedConversation ? 'Dialog ' + selectedConversation.dialog_id + ' · Request ' + selectedConversation.request_id : ''"></p>
+                        </div>
+                        <button @click="selectedConversation = null" class="text-xs font-bold uppercase tracking-widest text-c2d-blue">Cerrar</button>
+                    </div>
+                    <div class="mt-5 space-y-4">
+                        <template x-for="message in (selectedConversation ? selectedConversation.messages : [])" :key="message.id">
+                            <div class="flex" :class="message.tipo === 'from_client' ? 'justify-start' : 'justify-end'">
+                                <article class="max-w-2xl rounded-2xl p-4" :class="message.tipo === 'from_client' ? 'bg-slate-100' : 'bg-blue-50'">
+                                    <div class="flex justify-between gap-5 text-[10px] font-bold uppercase tracking-widest text-slate-400"><span x-text="message.tipo"></span><span x-text="message.fecha_creacion"></span></div>
+                                    <p class="mt-2 whitespace-pre-wrap text-sm text-slate-700" x-text="message.texto || '(sin texto)' "></p>
+                                </article>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+
                 <div x-show="selectedPeriod" class="mt-8 rounded-3xl border border-blue-50 bg-slate-50 p-6">
                     <h2 class="font-nunito text-lg text-c2d-dark-blue">Filtros de mensajes</h2>
-                    <div class="mt-4 grid grid-cols-1 gap-4 md:grid-cols-5">
+                    <div class="mt-4 grid grid-cols-1 gap-4 md:grid-cols-6">
                         <input x-model="messageFilters.dialog_id" placeholder="Dialog ID" class="rounded-xl border-slate-200 bg-white px-3 py-2 text-sm">
+                        <input x-model="messageFilters.request_id" placeholder="Request ID" class="rounded-xl border-slate-200 bg-white px-3 py-2 text-sm">
                         <input x-model="messageFilters.client_id" placeholder="Client ID" class="rounded-xl border-slate-200 bg-white px-3 py-2 text-sm">
                         <select x-model="messageFilters.message_type" class="rounded-xl border-slate-200 bg-white px-3 py-2 text-sm">
                             <option value="">Todos los tipos</option>

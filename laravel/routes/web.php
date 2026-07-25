@@ -49,6 +49,8 @@ Route::middleware('auth')->group(function () {
         Route::post('/extract', [ExtractionController::class, 'start'])->name('config.extract');
         Route::get('/sync-status', [ExtractionController::class, 'status'])->name('config.sync.status');
         Route::get('/messages', [ExtractionController::class, 'messages'])->name('config.messages');
+        Route::get('/conversations', [ExtractionController::class, 'conversations'])->name('config.conversations');
+        Route::get('/conversations/{dialogId}', [ExtractionController::class, 'conversationDetail'])->name('config.conversation.detail');
     });
 
     Route::get('/reports/operators', [ReportController::class, 'operators'])->name('reports.operators');

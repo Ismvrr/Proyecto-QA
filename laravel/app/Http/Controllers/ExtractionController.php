@@ -58,6 +58,7 @@ class ExtractionController extends Controller
             'year' => ['required', 'integer', 'min:2020', 'max:2030'],
             'month' => ['required', 'integer', 'min:1', 'max:12'],
             'dialog_id' => ['nullable', 'string', 'max:50'],
+            'request_id' => ['nullable', 'string', 'max:50'],
             'client_id' => ['nullable', 'string', 'max:50'],
             'message_type' => ['nullable', 'string', 'max:30'],
             'date_from' => ['nullable', 'date_format:Y-m-d'],
@@ -76,12 +77,61 @@ class ExtractionController extends Controller
                 'year' => $data['year'],
                 'month' => $data['month'],
                 'dialog_id' => $data['dialog_id'] ?? null,
+                'request_id' => $data['request_id'] ?? null,
                 'client_id' => $data['client_id'] ?? null,
                 'message_type' => $data['message_type'] ?? null,
                 'date_from' => $data['date_from'] ?? null,
                 'date_to' => $data['date_to'] ?? null,
             ], fn ($value) => $value !== null && $value !== '') )
         );
+
+        return response()->json($response->json(), $response->status());
+    }
+
+    /** Returns paginated conversations grouped by dialog. */
+    public function conversations(Request $request)
+    {
+        $data = $request->validate([
+            'year' => ['required', 'integer', 'min:2020', 'max:2030'],
+            'month' => ['required', 'integer', 'min:1', 'max:12'],
+            'page' => ['sometimes', 'integer', 'min:1'],
+        ]);
+        $company = Auth::user()->company;
+
+        if (!$company) {
+            return response()->json(['message' => 'No hay compañía vinculada.'], 400);
+        }
+
+        $response = $this->fastApiRequest('get', '/api/conversations?' . http_build_query([
+            'company_id' => $company->id,
+            'year' => $data['year'],
+            'month' => $data['month'],
+            'page' => $data['page'] ?? 1,
+        ]));
+
+        return response()->json($response->json(), $response->status());
+    }
+
+    /** Returns one conversation timeline. */
+    public function conversationDetail(Request $request, string $dialogId)
+    {
+        $data = $request->validate([
+            'year' => ['required', 'integer', 'min:2020', 'max:2030'],
+            'month' => ['required', 'integer', 'min:1', 'max:12'],
+            'request_id' => ['nullable', 'string', 'max:50'],
+        ]);
+        $company = Auth::user()->company;
+
+        if (!$company) {
+            return response()->json(['message' => 'No hay compañía vinculada.'], 400);
+        }
+
+        $response = $this->fastApiRequest('get', '/api/conversations/' . rawurlencode($dialogId) . '?' . http_build_query([
+            'company_id' => $company->id,
+            'year' => $data['year'],
+            'month' => $data['month'],
+            'request_id' => $data['request_id'] ?? null,
+        ]));
 
         return response()->json($response->json(), $response->status());
     }

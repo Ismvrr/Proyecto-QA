@@ -407,6 +407,7 @@ async def get_extracted_messages(
     month: int,
     limit: int = 100,
     dialog_id: Optional[str] = None,
+    request_id: Optional[str] = None,
     client_id: Optional[str] = None,
     message_type: Optional[str] = None,
     date_from: Optional[str] = None,
@@ -428,6 +429,9 @@ async def get_extracted_messages(
         if dialog_id:
             filters.append("dialog_id = %s")
             params.append(dialog_id)
+        if request_id:
+            filters.append("request_id = %s")
+            params.append(request_id)
         if client_id:
             filters.append("client_id = %s")
             params.append(client_id)
@@ -461,3 +465,106 @@ async def get_extracted_messages(
     except Exception as e:
         logger.error(f"Error getting extracted messages: {e}")
         raise HTTPException(status_code=500, detail="Could not retrieve messages")
+
+
+@router.get("/conversations")
+async def get_conversations(
+    company_id: int,
+    year: int,
+    month: int,
+    page: int = 1,
+    page_size: int = 20,
+    user: dict = Depends(get_current_user),
+):
+    """Returns conversations grouped by dialog for a selected period."""
+    if page < 1 or not 1 <= month <= 12 or not 1 <= page_size <= 100:
+        raise HTTPException(status_code=400, detail="Invalid pagination or month")
+
+    offset = (page - 1) * page_size
+    try:
+        with get_db() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """SELECT dialog_id, request_id, client_id,
+                              COUNT(*) AS total_messages,
+                              MIN(fecha_creacion) AS first_message,
+                              MAX(fecha_creacion) AS last_message
+                       FROM mensajes_request
+                       WHERE company_id = %s
+                         AND YEAR(fecha_creacion) = %s
+                         AND MONTH(fecha_creacion) = %s
+                       GROUP BY dialog_id, request_id, client_id
+                       ORDER BY last_message DESC
+                       LIMIT %s OFFSET %s""",
+                    (company_id, year, month, page_size, offset),
+                )
+                conversations = cursor.fetchall()
+
+                cursor.execute(
+                    """SELECT COUNT(*) AS total FROM (
+                           SELECT dialog_id, request_id, client_id
+                           FROM mensajes_request
+                           WHERE company_id = %s
+                             AND YEAR(fecha_creacion) = %s
+                             AND MONTH(fecha_creacion) = %s
+                           GROUP BY dialog_id, request_id, client_id
+                       ) grouped""",
+                    (company_id, year, month),
+                )
+                total = cursor.fetchone()["total"]
+
+                return {
+                    "company_id": company_id,
+                    "year": year,
+                    "month": month,
+                    "page": page,
+                    "page_size": page_size,
+                    "total": total,
+                    "conversations": conversations,
+                }
+    except Exception as e:
+        logger.error(f"Error getting conversations: {e}")
+        raise HTTPException(status_code=500, detail="Could not retrieve conversations")
+
+
+@router.get("/conversations/{dialog_id}")
+async def get_conversation_detail(
+    dialog_id: str,
+    company_id: int,
+    year: int,
+    month: int,
+    request_id: Optional[str] = None,
+    user: dict = Depends(get_current_user),
+):
+    """Returns the chronological timeline for one conversation."""
+    filters = [
+        "company_id = %s",
+        "dialog_id = %s",
+        "YEAR(fecha_creacion) = %s",
+        "MONTH(fecha_creacion) = %s",
+    ]
+    params = [company_id, dialog_id, year, month]
+    if request_id:
+        filters.append("request_id = %s")
+        params.append(request_id)
+
+    try:
+        with get_db() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    f"""SELECT id, request_id, dialog_id, mensaje_id, client_id,
+                              operator_id, tipo, texto, transport, fecha_creacion
+                       FROM mensajes_request
+                       WHERE {' AND '.join(filters)}
+                       ORDER BY fecha_creacion ASC, id ASC""",
+                    params,
+                )
+                messages = cursor.fetchall()
+                return {
+                    "dialog_id": dialog_id,
+                    "request_id": request_id,
+                    "messages": messages,
+                }
+    except Exception as e:
+        logger.error(f"Error getting conversation detail: {e}")
+        raise HTTPException(status_code=500, detail="Could not retrieve conversation")
