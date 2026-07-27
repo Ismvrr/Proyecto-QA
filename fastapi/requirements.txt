@@ -20,7 +20,7 @@ python-multipart>=0.0.18
 jinja2>=3.1.0
 
 # AI
-google-generativeai>=0.8.0
+google-genai>=1.0.0
 
 # PDF
 xhtml2pdf>=0.2.15

@@ -54,6 +54,23 @@
          conversationLoading: false,
          selectedConversation: null,
          copiedId: '',
+         geminiConfigured: false,
+         geminiKey: '',
+         promptList: [],
+         selectedPromptKey: '',
+         selectedPromptId: '',
+         promptName: '',
+         promptText: '',
+         promptMessage: '',
+         analysisDialogId: '',
+         analysisRequestId: '',
+         analysisYear: new Date().getFullYear(),
+         analysisMonth: new Date().getMonth() + 1,
+         analysisResult: '',
+         analysisTokens: null,
+         analysisJobId: null,
+         analysisSaving: false,
+         analysisMaxConversations: 1,
          messageFilters: { dialog_id: '', request_id: '', client_id: '', message_type: '', date_from: '', date_to: '' },
 
         init() {
@@ -253,6 +270,110 @@
              }
              this.copiedId = label;
              setTimeout(() => this.copiedId = '', 1500);
+         },
+
+         async loadAnalysis() {
+             const [status, prompts] = await Promise.all([
+                 fetch('{{ route('config.gemini.status') }}'),
+                 fetch('{{ route('config.prompts') }}')
+             ]);
+             if (status.ok) this.geminiConfigured = (await status.json()).configured;
+             if (prompts.ok) this.promptList = (await prompts.json()).prompts || [];
+         },
+
+         selectPrompt() {
+             const prompt = this.promptList.find(item => item.key === this.selectedPromptKey);
+             if (prompt) {
+                 this.promptName = prompt.name;
+                 this.promptText = prompt.prompt_text;
+                 this.selectedPromptId = prompt.source === 'client' ? prompt.id : '';
+             }
+         },
+
+         async saveGeminiKey() {
+             const response = await fetch('{{ route('config.gemini.key') }}', {
+                 method: 'PUT',
+                 headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}' },
+                 body: JSON.stringify({ api_key: this.geminiKey })
+             });
+             const result = await response.json();
+             this.promptMessage = result.message || 'No se pudo guardar la clave.';
+             if (response.ok) { this.geminiConfigured = true; this.geminiKey = ''; }
+         },
+
+         async savePrompt() {
+             const response = await fetch('{{ route('config.prompts.store') }}', {
+                 method: 'POST',
+                 headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}' },
+                 body: JSON.stringify({ name: this.promptName, prompt_text: this.promptText })
+             });
+             const result = await response.json();
+             this.promptMessage = result.message || (response.ok ? 'Prompt guardado.' : 'No se pudo guardar el prompt.');
+             if (response.ok) { this.promptList.push({ ...result.prompt, key: 'client-' + result.prompt.id, source: 'client' }); this.selectedPromptId = result.prompt.id; this.selectedPromptKey = 'client-' + result.prompt.id; }
+         },
+
+         async analyzeConversation() {
+             this.analysisSaving = true;
+             this.analysisResult = '';
+             this.analysisTokens = null;
+             this.analysisJobId = null;
+             try {
+                 const response = await fetch('{{ route('config.analyze.conversation') }}', {
+                     method: 'POST',
+                     headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}' },
+                     body: JSON.stringify({
+                         dialog_id: this.analysisDialogId,
+                         request_id: this.analysisRequestId || null,
+                         year: Number(this.analysisYear),
+                         month: Number(this.analysisMonth),
+                         client_prompt_id: this.selectedPromptId || null,
+                         prompt_text: this.promptText
+                     })
+                 });
+                 const result = await response.json();
+                 if (!response.ok) throw new Error(result.detail || result.message || 'No se pudo ejecutar el análisis.');
+                 this.analysisResult = result.result;
+                 this.analysisTokens = result.tokens;
+                 this.analysisJobId = result.job_id;
+             } catch (error) {
+                 this.analysisTokens = { input: 0, output: 0, total: 0 };
+                 this.promptMessage = error.message;
+             } finally {
+                 this.analysisSaving = false;
+             }
+         },
+
+         async analyzePeriod() {
+             this.analysisSaving = true;
+             this.analysisResult = '';
+             this.analysisTokens = null;
+             this.analysisJobId = null;
+             try {
+                 const response = await fetch('{{ route('config.analyze.period') }}', {
+                     method: 'POST',
+                     headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}' },
+                     body: JSON.stringify({
+                         year: Number(this.analysisYear),
+                         month: Number(this.analysisMonth),
+                         client_prompt_id: this.selectedPromptId || null,
+                         prompt_text: this.promptText,
+                         max_conversations: Number(this.analysisMaxConversations)
+                     })
+                 });
+                 const result = await response.json();
+                 if (!response.ok) throw new Error(result.detail || result.message || 'No se pudo analizar el periodo.');
+                 this.analysisResult = 'Conversaciones procesadas: ' + result.processed + '\n\n' + result.results.map(item => item.result).join('\n\n---\n\n');
+                 this.analysisTokens = result.results.reduce((total, item) => ({
+                     input: total.input + (item.tokens?.input || 0),
+                     output: total.output + (item.tokens?.output || 0),
+                     total: total.total + (item.tokens?.total || 0)
+                 }), { input: 0, output: 0, total: 0 });
+             } catch (error) {
+                 this.analysisTokens = { input: 0, output: 0, total: 0 };
+                 this.promptMessage = error.message;
+             } finally {
+                 this.analysisSaving = false;
+             }
          }
        }">
 
@@ -333,6 +454,10 @@
                         <li @click="activeModule = 'extraction'; loadSyncStatus()"
                             class="ml-10 p-2 text-slate-600 hover:text-c2d-blue rounded-lg cursor-pointer transition-all text-sm font-medium">
                             Extraer conversaciones
+                        </li>
+                        <li @click="activeModule = 'analysis'; loadAnalysis()"
+                            class="ml-10 p-2 text-slate-600 hover:text-c2d-blue rounded-lg cursor-pointer transition-all text-sm font-medium">
+                            Análisis IA
                         </li>
                     </ul>
                 </li>
@@ -558,6 +683,77 @@
                         </template>
                         <p x-show="selectedPeriod && selectedMessages.length === 0 && !messagesLoading" class="text-sm text-slate-400">No hay mensajes guardados para este periodo.</p>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <div x-show="activeModule === 'analysis'" x-cloak class="dashboard-scroll min-h-0 flex-1 p-10 bg-white" style="scrollbar-width: auto;">
+            <div class="mx-auto max-w-4xl space-y-8">
+                <div class="border-b border-slate-100 pb-6">
+                    <h1 class="text-3xl font-nunito text-c2d-dark-blue">Análisis IA</h1>
+                    <p class="mt-1 text-sm text-slate-400">El análisis se ejecuta únicamente cuando tú lo solicitas.</p>
+                </div>
+
+                <div class="rounded-3xl border border-amber-100 bg-amber-50 p-6">
+                    <h2 class="font-nunito text-lg text-amber-900">Configuración de Gemini</h2>
+                    <p class="mt-2 text-sm text-amber-800">La API key se guarda cifrada en el servidor y nunca se muestra después.</p>
+                    <div class="mt-4 flex flex-col gap-3 sm:flex-row">
+                        <input type="password" x-model="geminiKey" placeholder="API key de Gemini" class="flex-1 rounded-xl border-amber-200 bg-white px-4 py-3 text-sm">
+                        <button @click="saveGeminiKey()" class="rounded-xl bg-amber-700 px-5 py-3 text-xs font-bold uppercase tracking-widest text-white">Guardar clave</button>
+                    </div>
+                    <p class="mt-3 text-xs" :class="geminiConfigured ? 'text-green-700' : 'text-amber-800'" x-text="geminiConfigured ? 'API key configurada' : 'API key pendiente' "></p>
+                </div>
+
+                <div class="rounded-3xl border border-blue-50 bg-slate-50 p-6">
+                    <h2 class="font-nunito text-lg text-c2d-dark-blue">Prompt</h2>
+                    <div class="mt-4 grid gap-4 md:grid-cols-2">
+                        <select x-model="selectedPromptKey" @change="selectPrompt()" class="rounded-xl border-slate-200 bg-white px-4 py-3 text-sm">
+                            <option value="">Nuevo prompt personalizado</option>
+                            <template x-for="prompt in promptList" :key="prompt.key"><option :value="prompt.key" x-text="prompt.name"></option></template>
+                        </select>
+                        <input x-model="promptName" placeholder="Nombre para guardar el prompt" class="rounded-xl border-slate-200 bg-white px-4 py-3 text-sm">
+                    </div>
+                    <textarea x-model="promptText" rows="7" placeholder="Escribe las instrucciones para Gemini..." class="mt-4 w-full rounded-xl border-slate-200 bg-white px-4 py-3 text-sm"></textarea>
+                    <p class="mt-2 text-xs text-slate-400">Las plantillas base usan variables como <code>@{{industry}}</code> y <code>@{{company_context}}</code>. Reemplázalas con la información de cada empresa antes de guardarlas.</p>
+                    <button @click="savePrompt()" class="mt-4 rounded-xl bg-c2d-blue px-5 py-3 text-xs font-bold uppercase tracking-widest text-white">Guardar prompt</button>
+                </div>
+
+                <div class="rounded-3xl border border-blue-50 bg-white p-6 shadow-sm">
+                    <h2 class="font-nunito text-lg text-c2d-dark-blue">Analizar un periodo mensual</h2>
+                    <p class="mt-2 text-sm text-slate-500">No necesitas ingresar un Dialog ID. El sistema tomará las conversaciones extraídas del mes seleccionado.</p>
+                    <div class="mt-4 flex flex-wrap items-end gap-4">
+                        <label class="text-xs font-bold uppercase tracking-widest text-slate-500">Año<input type="number" x-model="analysisYear" min="2020" max="2030" class="mt-2 block w-32 rounded-xl border-slate-200 px-4 py-3 text-sm"></label>
+                        <label class="text-xs font-bold uppercase tracking-widest text-slate-500">Mes<input type="number" x-model="analysisMonth" min="1" max="12" class="mt-2 block w-24 rounded-xl border-slate-200 px-4 py-3 text-sm"></label>
+                        <label class="text-xs font-bold uppercase tracking-widest text-slate-500">Máximo de conversaciones<input type="number" min="1" max="100" x-model="analysisMaxConversations" class="mt-2 block w-40 rounded-xl border-slate-200 px-4 py-3 text-sm"></label>
+                        <button @click="analyzePeriod()" :disabled="analysisSaving || !geminiConfigured" class="rounded-xl bg-c2d-dark-blue px-5 py-3 text-xs font-bold uppercase tracking-widest text-white disabled:cursor-not-allowed disabled:opacity-40">Analizar periodo</button>
+                    </div>
+                    <p class="mt-3 text-xs text-slate-400">Comienza con 1 conversación para controlar el consumo de tokens.</p>
+                </div>
+
+                <div class="rounded-3xl border border-blue-50 bg-white p-6 shadow-sm">
+                    <h2 class="font-nunito text-lg text-c2d-dark-blue">Analizar una conversación (opcional)</h2>
+                    <p class="mt-2 text-sm text-slate-500">Usa esta opción solo para revisar un Dialog o Request específico.</p>
+                    <div class="mt-4 grid gap-4 sm:grid-cols-2">
+                        <input x-model="analysisDialogId" placeholder="Dialog ID" class="rounded-xl border-slate-200 px-4 py-3 text-sm">
+                        <input x-model="analysisRequestId" placeholder="Request ID opcional" class="rounded-xl border-slate-200 px-4 py-3 text-sm">
+                        <input type="number" x-model="analysisYear" min="2020" max="2030" class="rounded-xl border-slate-200 px-4 py-3 text-sm">
+                        <input type="number" x-model="analysisMonth" min="1" max="12" class="rounded-xl border-slate-200 px-4 py-3 text-sm">
+                    </div>
+                    <button @click="analyzeConversation()" :disabled="analysisSaving || !geminiConfigured" class="mt-5 rounded-xl bg-c2d-dark-blue px-5 py-3 text-xs font-bold uppercase tracking-widest text-white disabled:cursor-not-allowed disabled:opacity-40">
+                        <span x-text="analysisSaving ? 'Analizando...' : 'Analizar conversación'"></span>
+                    </button>
+                    <p x-show="promptMessage" x-text="promptMessage" class="mt-4 rounded-xl bg-slate-50 p-4 text-sm text-slate-600"></p>
+                </div>
+
+                <div x-show="analysisResult || analysisTokens" class="rounded-3xl border border-green-100 bg-green-50 p-6">
+                    <h2 class="font-nunito text-lg text-green-900">Resultado</h2>
+                    <p class="mt-4 whitespace-pre-wrap text-sm text-green-950" x-text="analysisResult"></p>
+                    <div x-show="analysisTokens" class="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                        <div class="rounded-xl bg-white p-4"><span class="block text-[10px] font-bold uppercase tracking-widest text-slate-400">Entrada</span><strong class="mt-1 block text-xl text-c2d-dark-blue" x-text="analysisTokens ? analysisTokens.input : 0"></strong></div>
+                        <div class="rounded-xl bg-white p-4"><span class="block text-[10px] font-bold uppercase tracking-widest text-slate-400">Salida</span><strong class="mt-1 block text-xl text-c2d-dark-blue" x-text="analysisTokens ? analysisTokens.output : 0"></strong></div>
+                        <div class="rounded-xl bg-white p-4"><span class="block text-[10px] font-bold uppercase tracking-widest text-slate-400">Total</span><strong class="mt-1 block text-xl text-c2d-dark-blue" x-text="analysisTokens ? analysisTokens.total : 0"></strong></div>
+                    </div>
+                    <p x-show="analysisJobId" class="mt-4 text-xs text-green-700" x-text="'Job de análisis: ' + analysisJobId"></p>
                 </div>
             </div>
         </div>

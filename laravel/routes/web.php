@@ -5,6 +5,8 @@ use App\Http\Controllers\CompanySyncController;
 use Illuminate\Support\Facades\Auth;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\ExtractionController;
+use App\Http\Controllers\PromptController;
+use App\Http\Controllers\AnalysisController;
 
 Route::redirect('/', '/login');
 
@@ -51,6 +53,12 @@ Route::middleware('auth')->group(function () {
         Route::get('/messages', [ExtractionController::class, 'messages'])->name('config.messages');
         Route::get('/conversations', [ExtractionController::class, 'conversations'])->name('config.conversations');
         Route::get('/conversations/{dialogId}', [ExtractionController::class, 'conversationDetail'])->name('config.conversation.detail');
+        Route::get('/prompts', [PromptController::class, 'index'])->name('config.prompts');
+        Route::post('/prompts', [PromptController::class, 'store'])->name('config.prompts.store');
+        Route::post('/analyze/conversation', [AnalysisController::class, 'conversation'])->name('config.analyze.conversation');
+        Route::post('/analyze/period', [AnalysisController::class, 'period'])->name('config.analyze.period');
+        Route::get('/gemini-status', [AnalysisController::class, 'geminiStatus'])->name('config.gemini.status');
+        Route::put('/gemini-key', [AnalysisController::class, 'saveGeminiKey'])->name('config.gemini.key');
     });
 
     Route::get('/reports/operators', [ReportController::class, 'operators'])->name('reports.operators');

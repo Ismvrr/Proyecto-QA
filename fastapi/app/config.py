@@ -56,6 +56,7 @@ class Settings(BaseSettings):
     # =========================================================================
     GEMINI_API_KEY: str = ""    # API key de Google Gemini
     GEMINI_MODEL: str = "gemini-2.0-flash"  # Modelo a usar
+    GEMINI_ENABLED: bool = False  # Se habilita solo para pruebas manuales
 
     # =========================================================================
     # JWT - Autenticación entre Laravel y FastAPI
