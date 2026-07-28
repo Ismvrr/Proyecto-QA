@@ -29,7 +29,7 @@ class ExtractionController extends Controller
             'year' => $data['year'],
             'month' => $data['month'],
             'c2d_token' => $company->api_token,
-            'exclude_autoreply' => $data['exclude_autoreply'] ?? true,
+            'exclude_autoreply' => $data['exclude_autoreply'] ?? false,
         ]);
 
         return response()->json($response->json(), $response->status());

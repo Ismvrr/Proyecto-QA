@@ -4,25 +4,76 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 
 class AnalysisController extends Controller
 {
-    public function geminiStatus()
+    public function history()
     {
-        return response()->json(['configured' => !empty(Auth::user()->company?->gemini_api_key)]);
-    }
-
-    public function saveGeminiKey(Request $request)
-    {
-        $data = $request->validate(['api_key' => ['required', 'string', 'min:20', 'max:500']]);
         $company = Auth::user()->company;
         if (!$company) {
-            return response()->json(['message' => 'No hay compañía vinculada.'], 400);
+            return response()->json(['analyses' => []]);
         }
 
-        $company->update(['gemini_api_key' => $data['api_key']]);
-        return response()->json(['status' => 'success', 'message' => 'API key guardada de forma segura.']);
+        return response()->json([
+            'analyses' => DB::table('analysis_jobs')
+                ->where('company_id', $company->id)
+                ->orderByDesc('id')
+                ->limit(20)
+                ->get([
+                    'id', 'year', 'month', 'status', 'gemini_key_source',
+                    'gemini_tokens_used', 'input_tokens', 'output_tokens',
+                    'started_at', 'completed_at',
+                ]),
+        ]);
+    }
+
+    public function historyDetail(int $id)
+    {
+        $company = Auth::user()->company;
+        $job = $company
+            ? DB::table('analysis_jobs')
+                ->where('company_id', $company->id)
+                ->where('id', $id)
+                ->first([
+                    'id', 'year', 'month', 'status', 'prompt_snapshot',
+                    'prompt1_result', 'prompt2_result', 'gemini_key_source',
+                    'gemini_tokens_used', 'input_tokens', 'output_tokens',
+                    'started_at', 'completed_at', 'error_message',
+                ])
+            : null;
+
+        if (!$job) {
+            return response()->json(['message' => 'Análisis no encontrado.'], 404);
+        }
+
+        $decodeResult = static function (?string $value): ?string {
+            if (!$value) {
+                return null;
+            }
+            $decoded = json_decode($value, true);
+            return is_array($decoded) ? ($decoded['text'] ?? null) : $value;
+        };
+
+        return response()->json([
+            'id' => $job->id,
+            'year' => $job->year,
+            'month' => $job->month,
+            'status' => $job->status,
+            'source' => $job->gemini_key_source,
+            'prompt' => $job->prompt_snapshot,
+            'result' => $decodeResult($job->prompt1_result),
+            'consolidation' => $decodeResult($job->prompt2_result),
+            'tokens' => [
+                'input' => $job->input_tokens,
+                'output' => $job->output_tokens,
+                'total' => $job->gemini_tokens_used,
+            ],
+            'error' => $job->error_message,
+            'started_at' => $job->started_at,
+            'completed_at' => $job->completed_at,
+        ]);
     }
 
     public function conversation(Request $request)
@@ -34,6 +85,7 @@ class AnalysisController extends Controller
             'month' => ['required', 'integer', 'min:1', 'max:12'],
             'client_prompt_id' => ['nullable', 'integer'],
             'prompt_text' => ['required', 'string', 'min:10', 'max:12000'],
+            'api_key' => ['nullable', 'string', 'min:20', 'max:500'],
         ]);
         $company = Auth::user()->company;
 
@@ -44,7 +96,7 @@ class AnalysisController extends Controller
         $baseUrl = config('services.fastapi.url', 'http://127.0.0.1:8000');
         $response = Http::baseUrl($baseUrl)
             ->acceptJson()
-            ->withHeaders(array_filter(['X-Gemini-API-Key' => $company->gemini_api_key]))
+            ->withHeaders(array_filter(['X-Gemini-API-Key' => $data['api_key'] ?? null]))
             ->withCookies(['token' => request()->cookie('token')], parse_url($baseUrl, PHP_URL_HOST))
             ->post('/api/analyze/conversation', [
                 'company_id' => $company->id,
@@ -67,6 +119,8 @@ class AnalysisController extends Controller
             'client_prompt_id' => ['nullable', 'integer'],
             'prompt_text' => ['required', 'string', 'min:10', 'max:12000'],
             'max_conversations' => ['sometimes', 'integer', 'min:1', 'max:100'],
+            'consolidate' => ['sometimes', 'boolean'],
+            'api_key' => ['nullable', 'string', 'min:20', 'max:500'],
         ]);
         $company = Auth::user()->company;
         if (!$company) {
@@ -76,7 +130,7 @@ class AnalysisController extends Controller
         $baseUrl = config('services.fastapi.url', 'http://127.0.0.1:8000');
         $response = Http::baseUrl($baseUrl)
             ->acceptJson()
-            ->withHeaders(array_filter(['X-Gemini-API-Key' => $company->gemini_api_key]))
+            ->withHeaders(array_filter(['X-Gemini-API-Key' => $data['api_key'] ?? null]))
             ->withCookies(['token' => request()->cookie('token')], parse_url($baseUrl, PHP_URL_HOST))
             ->post('/api/analyze/period', [
                 'company_id' => $company->id,
@@ -85,6 +139,7 @@ class AnalysisController extends Controller
                 'client_prompt_id' => $data['client_prompt_id'] ?? null,
                 'prompt_text' => $data['prompt_text'],
                 'max_conversations' => $data['max_conversations'] ?? 1,
+                'consolidate' => $data['consolidate'] ?? false,
             ]);
 
         return response()->json($response->json(), $response->status());

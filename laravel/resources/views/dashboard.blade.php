@@ -61,7 +61,9 @@
          selectedPromptId: '',
          promptName: '',
          promptText: '',
-         promptMessage: '',
+          promptMessage: '',
+          analysisHistory: [],
+          selectedHistory: null,
          analysisDialogId: '',
          analysisRequestId: '',
          analysisYear: new Date().getFullYear(),
@@ -182,7 +184,7 @@
                      body: JSON.stringify({
                          year: Number(this.extractionYear),
                          month: Number(this.extractionMonth),
-                         exclude_autoreply: true
+                         exclude_autoreply: false
                      })
                  });
                  const result = await response.json();
@@ -273,12 +275,17 @@
          },
 
          async loadAnalysis() {
-             const [status, prompts] = await Promise.all([
-                 fetch('{{ route('config.gemini.status') }}'),
-                 fetch('{{ route('config.prompts') }}')
+             const [prompts, history] = await Promise.all([
+                 fetch('{{ route('config.prompts') }}'),
+                 fetch('{{ route('config.analysis.history') }}')
              ]);
-             if (status.ok) this.geminiConfigured = (await status.json()).configured;
              if (prompts.ok) this.promptList = (await prompts.json()).prompts || [];
+             if (history.ok) this.analysisHistory = (await history.json()).analyses || [];
+         },
+
+         async viewAnalysisHistory(id) {
+             const response = await fetch('{{ url('/config/analysis-history') }}/' + id);
+             if (response.ok) this.selectedHistory = await response.json();
          },
 
          selectPrompt() {
@@ -291,14 +298,10 @@
          },
 
          async saveGeminiKey() {
-             const response = await fetch('{{ route('config.gemini.key') }}', {
-                 method: 'PUT',
-                 headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}' },
-                 body: JSON.stringify({ api_key: this.geminiKey })
-             });
-             const result = await response.json();
-             this.promptMessage = result.message || 'No se pudo guardar la clave.';
-             if (response.ok) { this.geminiConfigured = true; this.geminiKey = ''; }
+             this.geminiConfigured = this.geminiKey.trim().length >= 20;
+             this.promptMessage = this.geminiConfigured
+                 ? 'API key disponible solo durante esta sesión; no se guarda en la base de datos.'
+                 : 'La API key parece incompleta.';
          },
 
          async savePrompt() {
@@ -327,7 +330,8 @@
                          year: Number(this.analysisYear),
                          month: Number(this.analysisMonth),
                          client_prompt_id: this.selectedPromptId || null,
-                         prompt_text: this.promptText
+                         prompt_text: this.promptText,
+                         api_key: this.geminiKey || null
                      })
                  });
                  const result = await response.json();
@@ -357,17 +361,25 @@
                          month: Number(this.analysisMonth),
                          client_prompt_id: this.selectedPromptId || null,
                          prompt_text: this.promptText,
-                         max_conversations: Number(this.analysisMaxConversations)
+                         max_conversations: Number(this.analysisMaxConversations),
+                         consolidate: Number(this.analysisMaxConversations) > 1,
+                         api_key: this.geminiKey || null
                      })
                  });
                  const result = await response.json();
                  if (!response.ok) throw new Error(result.detail || result.message || 'No se pudo analizar el periodo.');
-                 this.analysisResult = 'Conversaciones procesadas: ' + result.processed + '\n\n' + result.results.map(item => item.result).join('\n\n---\n\n');
-                 this.analysisTokens = result.results.reduce((total, item) => ({
+                  this.analysisResult = 'Conversaciones procesadas: ' + result.processed + '\n\n' + result.results.map(item => item.result).join('\n\n---\n\n')
+                      + (result.consolidation ? '\n\n=== CONSOLIDACIÓN MENSUAL ===\n\n' + result.consolidation.result : '');
+                  this.analysisTokens = result.results.reduce((total, item) => ({
                      input: total.input + (item.tokens?.input || 0),
                      output: total.output + (item.tokens?.output || 0),
                      total: total.total + (item.tokens?.total || 0)
-                 }), { input: 0, output: 0, total: 0 });
+                  }), { input: 0, output: 0, total: 0 });
+                  if (result.consolidation?.tokens) {
+                      this.analysisTokens.input += result.consolidation.tokens.input || 0;
+                      this.analysisTokens.output += result.consolidation.tokens.output || 0;
+                      this.analysisTokens.total += result.consolidation.tokens.total || 0;
+                  }
              } catch (error) {
                  this.analysisTokens = { input: 0, output: 0, total: 0 };
                  this.promptMessage = error.message;
@@ -696,12 +708,12 @@
 
                 <div class="rounded-3xl border border-amber-100 bg-amber-50 p-6">
                     <h2 class="font-nunito text-lg text-amber-900">Configuración de Gemini</h2>
-                    <p class="mt-2 text-sm text-amber-800">La API key se guarda cifrada en el servidor y nunca se muestra después.</p>
+                    <p class="mt-2 text-sm text-amber-800">La API key se mantiene solo en memoria durante esta sesión y nunca se guarda en la base de datos.</p>
                     <div class="mt-4 flex flex-col gap-3 sm:flex-row">
                         <input type="password" x-model="geminiKey" placeholder="API key de Gemini" class="flex-1 rounded-xl border-amber-200 bg-white px-4 py-3 text-sm">
-                        <button @click="saveGeminiKey()" class="rounded-xl bg-amber-700 px-5 py-3 text-xs font-bold uppercase tracking-widest text-white">Guardar clave</button>
+                        <button @click="saveGeminiKey()" class="rounded-xl bg-amber-700 px-5 py-3 text-xs font-bold uppercase tracking-widest text-white">Usar en esta sesión</button>
                     </div>
-                    <p class="mt-3 text-xs" :class="geminiConfigured ? 'text-green-700' : 'text-amber-800'" x-text="geminiConfigured ? 'API key configurada' : 'API key pendiente' "></p>
+                    <p class="mt-3 text-xs" :class="geminiConfigured ? 'text-green-700' : 'text-amber-800'" x-text="geminiConfigured ? 'API key propia disponible para esta sesión' : 'Se usará la clave del servidor si está configurada'"></p>
                 </div>
 
                 <div class="rounded-3xl border border-blue-50 bg-slate-50 p-6">
@@ -725,7 +737,7 @@
                         <label class="text-xs font-bold uppercase tracking-widest text-slate-500">Año<input type="number" x-model="analysisYear" min="2020" max="2030" class="mt-2 block w-32 rounded-xl border-slate-200 px-4 py-3 text-sm"></label>
                         <label class="text-xs font-bold uppercase tracking-widest text-slate-500">Mes<input type="number" x-model="analysisMonth" min="1" max="12" class="mt-2 block w-24 rounded-xl border-slate-200 px-4 py-3 text-sm"></label>
                         <label class="text-xs font-bold uppercase tracking-widest text-slate-500">Máximo de conversaciones<input type="number" min="1" max="100" x-model="analysisMaxConversations" class="mt-2 block w-40 rounded-xl border-slate-200 px-4 py-3 text-sm"></label>
-                        <button @click="analyzePeriod()" :disabled="analysisSaving || !geminiConfigured" class="rounded-xl bg-c2d-dark-blue px-5 py-3 text-xs font-bold uppercase tracking-widest text-white disabled:cursor-not-allowed disabled:opacity-40">Analizar periodo</button>
+                        <button @click="analyzePeriod()" :disabled="analysisSaving" class="rounded-xl bg-c2d-dark-blue px-5 py-3 text-xs font-bold uppercase tracking-widest text-white disabled:cursor-not-allowed disabled:opacity-40">Analizar periodo</button>
                     </div>
                     <p class="mt-3 text-xs text-slate-400">Comienza con 1 conversación para controlar el consumo de tokens.</p>
                 </div>
@@ -739,7 +751,7 @@
                         <input type="number" x-model="analysisYear" min="2020" max="2030" class="rounded-xl border-slate-200 px-4 py-3 text-sm">
                         <input type="number" x-model="analysisMonth" min="1" max="12" class="rounded-xl border-slate-200 px-4 py-3 text-sm">
                     </div>
-                    <button @click="analyzeConversation()" :disabled="analysisSaving || !geminiConfigured" class="mt-5 rounded-xl bg-c2d-dark-blue px-5 py-3 text-xs font-bold uppercase tracking-widest text-white disabled:cursor-not-allowed disabled:opacity-40">
+                    <button @click="analyzeConversation()" :disabled="analysisSaving" class="mt-5 rounded-xl bg-c2d-dark-blue px-5 py-3 text-xs font-bold uppercase tracking-widest text-white disabled:cursor-not-allowed disabled:opacity-40">
                         <span x-text="analysisSaving ? 'Analizando...' : 'Analizar conversación'"></span>
                     </button>
                     <p x-show="promptMessage" x-text="promptMessage" class="mt-4 rounded-xl bg-slate-50 p-4 text-sm text-slate-600"></p>
@@ -754,6 +766,45 @@
                         <div class="rounded-xl bg-white p-4"><span class="block text-[10px] font-bold uppercase tracking-widest text-slate-400">Total</span><strong class="mt-1 block text-xl text-c2d-dark-blue" x-text="analysisTokens ? analysisTokens.total : 0"></strong></div>
                     </div>
                     <p x-show="analysisJobId" class="mt-4 text-xs text-green-700" x-text="'Job de análisis: ' + analysisJobId"></p>
+                </div>
+
+                <div class="rounded-3xl border border-slate-100 bg-slate-50 p-6">
+                    <h2 class="font-nunito text-lg text-c2d-dark-blue">Historial de análisis</h2>
+                    <div class="mt-4 space-y-2">
+                        <template x-for="job in analysisHistory" :key="job.id">
+                            <div class="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-white px-4 py-3 text-sm">
+                                <span class="font-bold text-c2d-dark-blue" x-text="'Job #' + job.id + ' · ' + job.year + '-' + String(job.month).padStart(2, '0')"></span>
+                                <div class="flex items-center gap-3">
+                                    <span class="text-slate-500" x-text="job.status + ' · ' + (job.gemini_key_source || 'server') + ' · ' + (job.gemini_tokens_used || 0) + ' tokens'"></span>
+                                    <button @click="viewAnalysisHistory(job.id)" class="rounded-lg bg-c2d-blue px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-white">Ver</button>
+                                </div>
+                            </div>
+                        </template>
+                        <p x-show="analysisHistory.length === 0" class="text-sm text-slate-400">Aún no hay análisis registrados.</p>
+                    </div>
+                    <div x-show="selectedHistory" class="mt-5 rounded-2xl border border-blue-100 bg-white p-5">
+                        <div class="flex flex-wrap items-center justify-between gap-3">
+                            <h3 class="font-nunito text-c2d-dark-blue" x-text="selectedHistory ? 'Job #' + selectedHistory.id + ' · ' + selectedHistory.status : ''"></h3>
+                            <button @click="selectedHistory = null" class="text-xs font-bold uppercase tracking-widest text-slate-400">Cerrar</button>
+                        </div>
+                        <p x-show="selectedHistory?.error" class="mt-4 rounded-xl bg-red-50 p-4 text-sm text-red-700" x-text="selectedHistory?.error"></p>
+                        <template x-if="selectedHistory?.result">
+                            <div class="mt-4">
+                                <h4 class="text-xs font-bold uppercase tracking-widest text-slate-400">Resultado</h4>
+                                <p class="mt-2 whitespace-pre-wrap text-sm text-slate-700" x-text="selectedHistory.result"></p>
+                            </div>
+                        </template>
+                        <template x-if="selectedHistory?.consolidation">
+                            <div class="mt-5 border-t border-slate-100 pt-5">
+                                <h4 class="text-xs font-bold uppercase tracking-widest text-slate-400">Consolidación mensual</h4>
+                                <p class="mt-2 whitespace-pre-wrap text-sm text-slate-700" x-text="selectedHistory.consolidation"></p>
+                            </div>
+                        </template>
+                        <details class="mt-5 border-t border-slate-100 pt-5">
+                            <summary class="cursor-pointer text-xs font-bold uppercase tracking-widest text-slate-400">Ver prompt utilizado</summary>
+                            <p class="mt-3 whitespace-pre-wrap text-xs text-slate-500" x-text="selectedHistory?.prompt"></p>
+                        </details>
+                    </div>
                 </div>
             </div>
         </div>

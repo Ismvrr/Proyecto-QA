@@ -55,10 +55,10 @@ Route::middleware('auth')->group(function () {
         Route::get('/conversations/{dialogId}', [ExtractionController::class, 'conversationDetail'])->name('config.conversation.detail');
         Route::get('/prompts', [PromptController::class, 'index'])->name('config.prompts');
         Route::post('/prompts', [PromptController::class, 'store'])->name('config.prompts.store');
+        Route::get('/analysis-history', [AnalysisController::class, 'history'])->name('config.analysis.history');
+        Route::get('/analysis-history/{id}', [AnalysisController::class, 'historyDetail'])->name('config.analysis.history.detail');
         Route::post('/analyze/conversation', [AnalysisController::class, 'conversation'])->name('config.analyze.conversation');
         Route::post('/analyze/period', [AnalysisController::class, 'period'])->name('config.analyze.period');
-        Route::get('/gemini-status', [AnalysisController::class, 'geminiStatus'])->name('config.gemini.status');
-        Route::put('/gemini-key', [AnalysisController::class, 'saveGeminiKey'])->name('config.gemini.key');
     });
 
     Route::get('/reports/operators', [ReportController::class, 'operators'])->name('reports.operators');

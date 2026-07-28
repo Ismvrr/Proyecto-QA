@@ -55,7 +55,7 @@ class Settings(BaseSettings):
     # Gemini - IA para análisis
     # =========================================================================
     GEMINI_API_KEY: str = ""    # API key de Google Gemini
-    GEMINI_MODEL: str = "gemini-2.0-flash"  # Modelo a usar
+    GEMINI_MODEL: str = "gemini-3.5-flash-lite"  # Modelo a usar
     GEMINI_ENABLED: bool = False  # Se habilita solo para pruebas manuales
 
     # =========================================================================

@@ -48,7 +48,7 @@ class ExtractRequest(BaseModel):
     year: int = Field(..., ge=2020, le=2030, description="Año a extraer")
     month: int = Field(..., ge=1, le=12, description="Mes a extraer (1-12)")
     c2d_token: Optional[str] = Field(None, description="Token C2D (opcional, usa el de la empresa)")
-    exclude_autoreply: bool = Field(True, description="Excluir mensajes autoreply")
+    exclude_autoreply: bool = Field(False, description="Excluir mensajes autoreply")
 
 
 class ExtractStatus(BaseModel):
@@ -265,7 +265,12 @@ async def start_extraction(
                 )
                 existing = cursor.fetchone()
                 # Permite reintentar periodos que terminaron sin mensajes por un error de filtros.
-                if existing and existing["status"] == "completed" and existing["total_messages"] > 0:
+                if (
+                    existing
+                    and existing["status"] == "completed"
+                    and existing["total_messages"] > 0
+                    and request.exclude_autoreply
+                ):
                     raise HTTPException(
                         status_code=400,
                         detail=f"Period {request.year}-{request.month:02d} already extracted"

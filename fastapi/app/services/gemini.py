@@ -20,6 +20,10 @@ class GeminiQuotaError(RuntimeError):
     """Raised when the Google project has no available Gemini quota."""
 
 
+class GeminiConfigurationError(RuntimeError):
+    """Raised when the API key or Gemini configuration is invalid."""
+
+
 @dataclass
 class GeminiResult:
     text: str
@@ -39,7 +43,7 @@ def analyze_text(prompt: str, api_key: str | None = None) -> GeminiResult:
         raise GeminiDisabledError("Gemini analysis is disabled")
     key = api_key or settings.GEMINI_API_KEY
     if not key:
-        raise RuntimeError("GEMINI_API_KEY is not configured")
+        raise GeminiConfigurationError("No hay una API key de Gemini configurada")
 
     client = genai.Client(api_key=key)
     try:
@@ -48,10 +52,16 @@ def analyze_text(prompt: str, api_key: str | None = None) -> GeminiResult:
             contents=prompt,
         )
     except errors.ClientError as exc:
+        logger.warning("Gemini API client error code=%s detail=%s", exc.code, str(exc))
         if exc.code == 429:
             raise GeminiQuotaError(
                 "Gemini no tiene cuota disponible para este proyecto o modelo. "
                 "Revisa billing, límites y la API key en Google AI Studio."
+            ) from exc
+        if exc.code in (400, 401, 403, 404):
+            raise GeminiConfigurationError(
+                f"La API key no tiene acceso o el modelo {settings.GEMINI_MODEL} no está disponible para este proyecto. "
+                "Verifica el proyecto, la Generative Language API y las restricciones de la clave."
             ) from exc
         raise
     usage = getattr(response, "usage_metadata", None)
