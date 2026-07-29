@@ -37,6 +37,7 @@ from app.routes.auth import router as auth_router
 from app.routes.extraction import router as extraction_router
 from app.routes.webhooks import router as webhooks_router
 from app.routes.analysis import router as analysis_router
+from app.routes.reports import router as reports_router
 
 settings = get_settings()
 
@@ -63,6 +64,7 @@ app.include_router(auth_router)
 app.include_router(extraction_router)
 app.include_router(webhooks_router)
 app.include_router(analysis_router)
+app.include_router(reports_router)
 
 
 @app.get("/health")

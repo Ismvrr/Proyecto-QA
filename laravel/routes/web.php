@@ -62,4 +62,6 @@ Route::middleware('auth')->group(function () {
     });
 
     Route::get('/reports/operators', [ReportController::class, 'operators'])->name('reports.operators');
+    Route::get('/reports/monthly', [ReportController::class, 'monthly'])->name('reports.monthly');
+    Route::get('/reports/analysis/{jobId}', [ReportController::class, 'analysisJob'])->name('reports.analysis.job');
 });

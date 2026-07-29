@@ -13,10 +13,14 @@ class AnalysisController extends Controller
     {
         $company = Auth::user()->company;
         if (!$company) {
-            return response()->json(['analyses' => []]);
+            return response()->json(['analyses' => [], 'total_tokens' => 0]);
         }
 
         return response()->json([
+            'total_tokens' => (int) DB::table('analysis_jobs')
+                ->where('company_id', $company->id)
+                ->where('status', 'completed')
+                ->sum('gemini_tokens_used'),
             'analyses' => DB::table('analysis_jobs')
                 ->where('company_id', $company->id)
                 ->orderByDesc('id')

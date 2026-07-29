@@ -63,6 +63,7 @@
          promptText: '',
           promptMessage: '',
           analysisHistory: [],
+          analysisGlobalTokens: 0,
           selectedHistory: null,
          analysisDialogId: '',
          analysisRequestId: '',
@@ -280,7 +281,11 @@
                  fetch('{{ route('config.analysis.history') }}')
              ]);
              if (prompts.ok) this.promptList = (await prompts.json()).prompts || [];
-             if (history.ok) this.analysisHistory = (await history.json()).analyses || [];
+             if (history.ok) {
+                 const historyData = await history.json();
+                 this.analysisHistory = historyData.analyses || [];
+                 this.analysisGlobalTokens = historyData.total_tokens || 0;
+             }
          },
 
          async viewAnalysisHistory(id) {
@@ -337,8 +342,9 @@
                  const result = await response.json();
                  if (!response.ok) throw new Error(result.detail || result.message || 'No se pudo ejecutar el análisis.');
                  this.analysisResult = result.result;
-                 this.analysisTokens = result.tokens;
-                 this.analysisJobId = result.job_id;
+                  this.analysisTokens = result.tokens;
+                  this.analysisJobId = result.job_id;
+                  await this.loadAnalysis();
              } catch (error) {
                  this.analysisTokens = { input: 0, output: 0, total: 0 };
                  this.promptMessage = error.message;
@@ -380,6 +386,7 @@
                       this.analysisTokens.output += result.consolidation.tokens.output || 0;
                       this.analysisTokens.total += result.consolidation.tokens.total || 0;
                   }
+                  await this.loadAnalysis();
              } catch (error) {
                  this.analysisTokens = { input: 0, output: 0, total: 0 };
                  this.promptMessage = error.message;
@@ -701,9 +708,18 @@
 
         <div x-show="activeModule === 'analysis'" x-cloak class="dashboard-scroll min-h-0 flex-1 p-10 bg-white" style="scrollbar-width: auto;">
             <div class="mx-auto max-w-4xl space-y-8">
-                <div class="border-b border-slate-100 pb-6">
-                    <h1 class="text-3xl font-nunito text-c2d-dark-blue">Análisis IA</h1>
-                    <p class="mt-1 text-sm text-slate-400">El análisis se ejecuta únicamente cuando tú lo solicitas.</p>
+                 <div class="border-b border-slate-100 pb-6">
+                    <div class="flex flex-wrap items-start justify-between gap-4">
+                        <div>
+                            <h1 class="text-3xl font-nunito text-c2d-dark-blue">Análisis IA</h1>
+                            <p class="mt-1 text-sm text-slate-400">El análisis se ejecuta únicamente cuando tú lo solicitas.</p>
+                        </div>
+                        <div class="rounded-2xl bg-c2d-dark-blue px-5 py-3 text-right text-white shadow-sm">
+                            <span class="block text-[10px] font-bold uppercase tracking-widest text-blue-200">Tokens acumulados</span>
+                            <strong class="mt-1 block text-2xl font-nunito" x-text="analysisGlobalTokens.toLocaleString('es-MX')"></strong>
+                            <span class="block text-[10px] text-blue-200">consultas completadas</span>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="rounded-3xl border border-amber-100 bg-amber-50 p-6">
@@ -737,7 +753,8 @@
                         <label class="text-xs font-bold uppercase tracking-widest text-slate-500">Año<input type="number" x-model="analysisYear" min="2020" max="2030" class="mt-2 block w-32 rounded-xl border-slate-200 px-4 py-3 text-sm"></label>
                         <label class="text-xs font-bold uppercase tracking-widest text-slate-500">Mes<input type="number" x-model="analysisMonth" min="1" max="12" class="mt-2 block w-24 rounded-xl border-slate-200 px-4 py-3 text-sm"></label>
                         <label class="text-xs font-bold uppercase tracking-widest text-slate-500">Máximo de conversaciones<input type="number" min="1" max="100" x-model="analysisMaxConversations" class="mt-2 block w-40 rounded-xl border-slate-200 px-4 py-3 text-sm"></label>
-                        <button @click="analyzePeriod()" :disabled="analysisSaving" class="rounded-xl bg-c2d-dark-blue px-5 py-3 text-xs font-bold uppercase tracking-widest text-white disabled:cursor-not-allowed disabled:opacity-40">Analizar periodo</button>
+                         <button @click="analyzePeriod()" :disabled="analysisSaving" class="rounded-xl bg-c2d-dark-blue px-5 py-3 text-xs font-bold uppercase tracking-widest text-white disabled:cursor-not-allowed disabled:opacity-40">Analizar periodo</button>
+                        <a :href="'{{ route('reports.monthly') }}?year=' + analysisYear + '&month=' + analysisMonth" class="rounded-xl border border-c2d-dark-blue px-5 py-3 text-xs font-bold uppercase tracking-widest text-c2d-dark-blue">Descargar PDF</a>
                     </div>
                     <p class="mt-3 text-xs text-slate-400">Comienza con 1 conversación para controlar el consumo de tokens.</p>
                 </div>
@@ -777,6 +794,7 @@
                                 <div class="flex items-center gap-3">
                                     <span class="text-slate-500" x-text="job.status + ' · ' + (job.gemini_key_source || 'server') + ' · ' + (job.gemini_tokens_used || 0) + ' tokens'"></span>
                                     <button @click="viewAnalysisHistory(job.id)" class="rounded-lg bg-c2d-blue px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-white">Ver</button>
+                                    <a :href="'{{ url('/reports/analysis') }}/' + job.id" class="rounded-lg border border-c2d-blue px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-c2d-blue">PDF</a>
                                 </div>
                             </div>
                         </template>
