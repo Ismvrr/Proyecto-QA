@@ -25,10 +25,9 @@ Endpoints principales:
 
 import logging
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from datetime import datetime
-import os
 
 from app.config import get_settings
 from app.database import check_db_connection
@@ -72,34 +71,16 @@ async def health_check():
     """
     Health check del sistema.
 
-    Verifica:
-        - Estado de la API
-        - Conexión a base de datos
-        - Uptime del servicio
-
-    Retorna:
-        {
-            "status": "healthy" | "degraded",
-            "app": "API_C2D",
-            "version": "1.0.0",
-            "database": "connected" | "disconnected",
-            "timestamp": "2026-07-20T..."
-        }
-
-    Nota: 'degraded' significa que la BD no responde pero la API funciona.
+    Retorna solo un estado simple para el monitor externo.
     """
     db_status = check_db_connection()
-    status = "healthy" if db_status else "degraded"
+    if not db_status:
+        logger.error("health_check_failed", extra={"db_status": "disconnected"})
+        return JSONResponse(status_code=503, content={"status": "error"})
 
-    logger.info("health_check", extra={"db_status": status})
+    logger.info("health_check", extra={"db_status": "connected"})
 
-    return {
-        "status": status,
-        "app": settings.APP_NAME,
-        "version": settings.APP_VERSION,
-        "database": "connected" if db_status else "disconnected",
-        "timestamp": datetime.utcnow().isoformat()
-    }
+    return {"status": "ok"}
 
 
 @app.get("/")
