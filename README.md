@@ -310,8 +310,6 @@ Revisa Billing, cuota y límites del proyecto. Para pruebas controladas puedes u
 - Validar el `company_id` en todas las consultas protegidas.
 - No exponer logs con headers de autenticación.
 
-## Estado del proyecto
+## Autoría
 
-- Días 1-11: implementados y validados.
-- Día 12: documentación y pruebas finales.
-- Webhooks: funcionalidad post-V1 pendiente de autorización operativa.
+Creado y mantenido por **Ismael Ramírez**.
