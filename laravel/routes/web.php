@@ -37,6 +37,7 @@ Route::middleware('auth')->group(function () {
         // Sin empresa vinculada debe mostrarse el formulario de conexión.
         'company_status' => $company ? $company->status : 'unconfigured',
         'realtime_enabled' => $company ? $company->realtime_enabled : false,
+        'can_connect_c2d' => in_array($user->role, ['admin', 'supervisor', 'shadow'], true),
         'webhook_url' => url('/api/webhooks/c2d'),
     ]);
     })->middleware(['auth'])->name('dashboard');

@@ -16,6 +16,15 @@ class CompanySyncController extends Controller
     {
         $request->validate(['api_token' => 'required|string']);
         $token = $request->api_token;
+        $user = Auth::user();
+        $role = $user->role;
+
+        if (!in_array($role, ['admin', 'supervisor', 'shadow'], true)) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Solo administradores y supervisores pueden conectar Chat2Desk.',
+            ], 403);
+        }
 
         $response = Http::timeout(20)->withHeaders(['Authorization' => $token])
             ->get('https://api.chat2desk.com.mx/v1/companies/api_info');
@@ -47,9 +56,22 @@ class CompanySyncController extends Controller
             ], 502);
         }
 
-        // Validación: Solo el administrador puede conectar
-        if (Auth::user()->email !== $data['admin_email']) {
-            return response()->json(['status' => 'error', 'message' => 'Solo el administrador puede conectar Chat2desk.'], 403);
+        $company = $user->company;
+        $isBootstrap = !$company && $role === 'shadow';
+
+        if ($isBootstrap) {
+            // The first connection still belongs to the C2D account admin.
+            if (!$data['admin_email'] || $this->normalizeEmail($user->email) !== $this->normalizeEmail($data['admin_email'])) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'La primera conexión debe realizarla el administrador de la cuenta Chat2Desk.',
+                ], 403);
+            }
+        } elseif (!$company || (string) $company->company_id !== (string) $data['companyID']) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'El token no corresponde a la empresa vinculada a este usuario.',
+            ], 403);
         }
 
         $company = Company::updateOrCreate(
@@ -68,7 +90,10 @@ class CompanySyncController extends Controller
             ]
         );
 
-        Auth::user()->update(['company_id' => $company->id, 'role' => 'admin']);
+        $user->update(array_filter([
+            'company_id' => $company->id,
+            'role' => $isBootstrap ? 'admin' : null,
+        ], static fn ($value) => $value !== null));
 
         return response()->json(['status' => 'success', 'company_id' => $company->id]);
     }
@@ -76,6 +101,13 @@ class CompanySyncController extends Controller
     // Paso 2: Sincronización Masiva de Operadores
     public function syncOperators(Request $request)
     {
+        if (!in_array(Auth::user()->role, ['admin', 'supervisor'], true)) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Solo administradores y supervisores pueden sincronizar operadores.',
+            ], 403);
+        }
+
         $company = Auth::user()->company;
         
         if (!$company) {
@@ -137,6 +169,13 @@ class CompanySyncController extends Controller
      */
     public function updateRealtime(Request $request)
     {
+        if (!in_array(Auth::user()->role, ['admin', 'supervisor'], true)) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Solo administradores y supervisores pueden configurar real-time.',
+            ], 403);
+        }
+
         $request->validate(['enabled' => 'required|boolean']);
         $company = Auth::user()->company;
 
@@ -151,7 +190,12 @@ class CompanySyncController extends Controller
             'realtime_enabled' => $company->realtime_enabled,
             'message' => $company->realtime_enabled
                 ? 'Real-time activado en API_C2D. Falta apuntar esta cuenta en Chat2Desk.'
-                : 'Real-time desactivado en API_C2D.',
-        ]);
+            : 'Real-time desactivado en API_C2D.',
+            ]);
+    }
+
+    private function normalizeEmail(?string $email): string
+    {
+        return strtolower(trim((string) $email));
     }
 }
