@@ -57,17 +57,9 @@ class CompanySyncController extends Controller
         }
 
         $company = $user->company;
-        $isBootstrap = !$company && $role === 'shadow';
+        $isBootstrap = !$company;
 
-        if ($isBootstrap) {
-            // The first connection still belongs to the C2D account admin.
-            if (!$data['admin_email'] || $this->normalizeEmail($user->email) !== $this->normalizeEmail($data['admin_email'])) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'La primera conexión debe realizarla el administrador de la cuenta Chat2Desk.',
-                ], 403);
-            }
-        } elseif (!$company || (string) $company->company_id !== (string) $data['companyID']) {
+        if (!$isBootstrap && (string) $company->company_id !== (string) $data['companyID']) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'El token no corresponde a la empresa vinculada a este usuario.',
@@ -90,10 +82,9 @@ class CompanySyncController extends Controller
             ]
         );
 
-        $user->update(array_filter([
-            'company_id' => $company->id,
-            'role' => $isBootstrap ? 'admin' : null,
-        ], static fn ($value) => $value !== null));
+        // Keep a first-time user as shadow until operator sync confirms the
+        // role returned by Chat2Desk.
+        $user->update(['company_id' => $company->id]);
 
         return response()->json(['status' => 'success', 'company_id' => $company->id]);
     }
@@ -101,7 +92,7 @@ class CompanySyncController extends Controller
     // Paso 2: Sincronización Masiva de Operadores
     public function syncOperators(Request $request)
     {
-        if (!in_array(Auth::user()->role, ['admin', 'supervisor'], true)) {
+        if (!in_array(Auth::user()->role, ['admin', 'supervisor', 'shadow'], true)) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Solo administradores y supervisores pueden sincronizar operadores.',
@@ -160,6 +151,23 @@ class CompanySyncController extends Controller
             } while ($hasMore);
         }
 
+        $currentUser = Auth::user()->fresh();
+        if ($currentUser->role === 'shadow') {
+            // A first connection must prove that the logged-in C2D user is
+            // an admin or supervisor before retaining the company token.
+            $company->update([
+                'api_token' => null,
+                'api_token_hash' => null,
+                'status' => 'unconfigured',
+            ]);
+            $currentUser->update(['company_id' => null]);
+
+            return response()->json([
+                'status' => 'error',
+                'message' => 'El usuario C2D no tiene rol de administrador o supervisor.',
+            ], 403);
+        }
+
         return response()->json(['status' => 'success', 'total' => $totalProcessed]);
     }
 
@@ -194,8 +202,4 @@ class CompanySyncController extends Controller
             ]);
     }
 
-    private function normalizeEmail(?string $email): string
-    {
-        return strtolower(trim((string) $email));
-    }
 }
