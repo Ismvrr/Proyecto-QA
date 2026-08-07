@@ -11,7 +11,7 @@ Flujo de conexión:
     4. Cierra conexión automáticamente al salir del context manager
 
 Notas:
-    - La BD está en un servidor remoto (DB_HOST:3306)
+    - La BD se configura por entorno y no se expone en el código
     - Se usa charset utf8mb4 para soporte de emojis/unicode
     - autocommit=True para simplicidad (sin transacciones explícitas)
 """

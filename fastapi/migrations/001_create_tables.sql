@@ -1,6 +1,6 @@
 -- API_C2D - Tablas del sistema
 -- Fecha: 2026-07-16
--- Base de datos: DB_NAME (DB_HOST)
+-- Base de datos: configurar el nombre y host mediante variables de entorno
 
 -- =============================================
 -- 1. companies (del login-module)

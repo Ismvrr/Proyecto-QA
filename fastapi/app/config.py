@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     # DATABASE - Conexión MySQL remota
     # =========================================================================
     # NOTA: Estos valores NO están en .env.example (son específicos del entorno)
-    DB_HOST: str = ""          # Host de MySQL (ej: DB_HOST)
+    DB_HOST: str = ""          # Host de MySQL, configurado por entorno
     DB_PORT: int = 3306        # Puerto MySQL
     DB_USER: str = ""          # Usuario de BD
     DB_PASS: str = ""          # Contraseña de BD
