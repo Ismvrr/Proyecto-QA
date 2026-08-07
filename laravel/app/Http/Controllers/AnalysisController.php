@@ -123,6 +123,7 @@ class AnalysisController extends Controller
             'client_prompt_id' => ['nullable', 'integer'],
             'prompt_text' => ['required', 'string', 'min:10', 'max:12000'],
             'max_conversations' => ['sometimes', 'integer', 'min:1', 'max:100'],
+            'full_month' => ['sometimes', 'boolean'],
             'consolidate' => ['sometimes', 'boolean'],
             'api_key' => ['nullable', 'string', 'min:20', 'max:500'],
         ]);
@@ -143,6 +144,7 @@ class AnalysisController extends Controller
                 'client_prompt_id' => $data['client_prompt_id'] ?? null,
                 'prompt_text' => $data['prompt_text'],
                 'max_conversations' => $data['max_conversations'] ?? 1,
+                'full_month' => $data['full_month'] ?? false,
                 'consolidate' => $data['consolidate'] ?? false,
             ]);
 

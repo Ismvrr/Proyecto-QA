@@ -35,7 +35,8 @@
         progress: 0,
          syncMessage: 'Iniciando...',
          stats: {{ json_encode($stats ?? []) }},
-         companyStatus: '{{ $company_status ?? 'shadow' }}',
+          companyStatus: '{{ $company_status ?? 'shadow' }}',
+          canConnectC2d: {{ ($can_connect_c2d ?? false) ? 'true' : 'false' }},
          realtimeEnabled: {{ ($realtime_enabled ?? false) ? 'true' : 'false' }},
          realtimeSaving: false,
          realtimeMessage: '',
@@ -71,9 +72,10 @@
          analysisMonth: new Date().getMonth() + 1,
          analysisResult: '',
          analysisTokens: null,
-         analysisJobId: null,
-         analysisSaving: false,
-         analysisMaxConversations: 1,
+          analysisJobId: null,
+          analysisSaving: false,
+          analysisMaxConversations: 1,
+          analysisScope: 'sample',
          messageFilters: { dialog_id: '', request_id: '', client_id: '', message_type: '', date_from: '', date_to: '' },
 
         init() {
@@ -366,10 +368,11 @@
                          year: Number(this.analysisYear),
                          month: Number(this.analysisMonth),
                          client_prompt_id: this.selectedPromptId || null,
-                         prompt_text: this.promptText,
-                         max_conversations: Number(this.analysisMaxConversations),
-                         consolidate: Number(this.analysisMaxConversations) > 1,
-                         api_key: this.geminiKey || null
+                          prompt_text: this.promptText,
+                          max_conversations: Number(this.analysisMaxConversations),
+                          full_month: this.analysisScope === 'full_month',
+                          consolidate: this.analysisScope === 'full_month' || Number(this.analysisMaxConversations) > 1,
+                          api_key: this.geminiKey || null
                      })
                  });
                  const result = await response.json();
@@ -462,7 +465,7 @@
                         x-transition:enter="transition ease-out duration-200"
                         x-transition:enter-start="opacity-0 -translate-y-2"
                         class="mt-1 space-y-1">
-                        <li @click="showConfigModal = true" 
+                         <li x-show="canConnectC2d" @click="showConfigModal = true"
                             class="ml-10 p-2 text-slate-600 hover:text-c2d-blue rounded-lg cursor-pointer transition-all text-sm font-medium">
                             Conectar a C2D OnCloud
                         </li>
@@ -746,18 +749,27 @@
                     <button @click="savePrompt()" class="mt-4 rounded-xl bg-c2d-blue px-5 py-3 text-xs font-bold uppercase tracking-widest text-white">Guardar prompt</button>
                 </div>
 
-                <div class="rounded-3xl border border-blue-50 bg-white p-6 shadow-sm">
-                    <h2 class="font-nunito text-lg text-c2d-dark-blue">Analizar un periodo mensual</h2>
-                    <p class="mt-2 text-sm text-slate-500">No necesitas ingresar un Dialog ID. El sistema tomará las conversaciones extraídas del mes seleccionado.</p>
-                    <div class="mt-4 flex flex-wrap items-end gap-4">
-                        <label class="text-xs font-bold uppercase tracking-widest text-slate-500">Año<input type="number" x-model="analysisYear" min="2020" max="2030" class="mt-2 block w-32 rounded-xl border-slate-200 px-4 py-3 text-sm"></label>
-                        <label class="text-xs font-bold uppercase tracking-widest text-slate-500">Mes<input type="number" x-model="analysisMonth" min="1" max="12" class="mt-2 block w-24 rounded-xl border-slate-200 px-4 py-3 text-sm"></label>
-                        <label class="text-xs font-bold uppercase tracking-widest text-slate-500">Máximo de conversaciones<input type="number" min="1" max="100" x-model="analysisMaxConversations" class="mt-2 block w-40 rounded-xl border-slate-200 px-4 py-3 text-sm"></label>
-                         <button @click="analyzePeriod()" :disabled="analysisSaving" class="rounded-xl bg-c2d-dark-blue px-5 py-3 text-xs font-bold uppercase tracking-widest text-white disabled:cursor-not-allowed disabled:opacity-40">Analizar periodo</button>
-                        <a :href="'{{ route('reports.monthly') }}?year=' + analysisYear + '&month=' + analysisMonth" class="rounded-xl border border-c2d-dark-blue px-5 py-3 text-xs font-bold uppercase tracking-widest text-c2d-dark-blue">Descargar PDF</a>
-                    </div>
-                    <p class="mt-3 text-xs text-slate-400">Comienza con 1 conversación para controlar el consumo de tokens.</p>
-                </div>
+                 <div class="rounded-3xl border border-blue-50 bg-white p-6 shadow-sm">
+                     <h2 class="font-nunito text-lg text-c2d-dark-blue">Analizar un periodo mensual</h2>
+                     <p class="mt-2 text-sm text-slate-500">No necesitas ingresar un Dialog ID. El sistema tomará las conversaciones extraídas del mes seleccionado.</p>
+                     <div class="mt-4 grid gap-4 md:grid-cols-2">
+                         <label class="text-xs font-bold uppercase tracking-widest text-slate-500">Año<input type="number" x-model="analysisYear" min="2020" max="2030" class="mt-2 block w-32 rounded-xl border-slate-200 px-4 py-3 text-sm"></label>
+                         <label class="text-xs font-bold uppercase tracking-widest text-slate-500">Mes<input type="number" x-model="analysisMonth" min="1" max="12" class="mt-2 block w-24 rounded-xl border-slate-200 px-4 py-3 text-sm"></label>
+                         <label class="text-xs font-bold uppercase tracking-widest text-slate-500 md:col-span-2">Alcance del análisis
+                             <select x-model="analysisScope" class="mt-2 block w-full rounded-xl border-slate-200 px-4 py-3 text-sm">
+                                 <option value="sample">Analizar una cantidad de conversaciones</option>
+                                 <option value="full_month">Analizar el mes completo extraído</option>
+                             </select>
+                         </label>
+                         <label x-show="analysisScope === 'sample'" class="text-xs font-bold uppercase tracking-widest text-slate-500">Cantidad de conversaciones<input type="number" min="1" max="100" x-model="analysisMaxConversations" class="mt-2 block w-40 rounded-xl border-slate-200 px-4 py-3 text-sm"></label>
+                         <div x-show="analysisScope === 'full_month'" class="rounded-xl bg-amber-50 p-3 text-xs text-amber-800 md:col-span-2">Se analizarán todas las conversaciones guardadas de este año y mes. Esta opción puede consumir muchos tokens y requiere que el periodo ya esté extraído.</div>
+                         <div class="flex flex-wrap items-end gap-3 md:col-span-2">
+                             <button @click="analyzePeriod()" :disabled="analysisSaving" class="rounded-xl bg-c2d-dark-blue px-5 py-3 text-xs font-bold uppercase tracking-widest text-white disabled:cursor-not-allowed disabled:opacity-40">Analizar periodo</button>
+                             <a :href="'{{ route('reports.monthly') }}?year=' + analysisYear + '&month=' + analysisMonth" class="rounded-xl border border-c2d-dark-blue px-5 py-3 text-xs font-bold uppercase tracking-widest text-c2d-dark-blue">Descargar PDF</a>
+                         </div>
+                     </div>
+                     <p class="mt-3 text-xs text-slate-400" x-show="analysisScope === 'sample'">Comienza con una cantidad pequeña para controlar el consumo de tokens.</p>
+                 </div>
 
                 <div class="rounded-3xl border border-blue-50 bg-white p-6 shadow-sm">
                     <h2 class="font-nunito text-lg text-c2d-dark-blue">Analizar una conversación (opcional)</h2>
@@ -847,10 +859,10 @@
                 <template x-if="companyStatus !== 'active'">
                     <div class="text-left">
                         <h3 class="text-2xl font-nunito text-c2d-dark-blue mb-2">Conectar C2D</h3>
-                        <p class="text-sm text-slate-400 mb-8">Ingresa tu API Token para sincronizar la plataforma.</p>
+                            <p class="text-sm text-slate-400 mb-8">Ingresa el API token de Chat2Desk para sincronizar la plataforma.</p>
                         <form @submit.prevent="startSync()">
                             <div x-show="!isSyncing">
-                                <label class="text-[10px] font-bold uppercase text-slate-400 tracking-widest">Admin API Token</label>
+                                <label class="text-[10px] font-bold uppercase text-slate-400 tracking-widest">API Token de Chat2Desk</label>
                                 <input type="password" id="api_token_input" class="w-full rounded-2xl border-slate-100 mt-2 bg-slate-50 focus:ring-c2d-blue py-3 px-4">
                             </div>
                             <div x-show="isSyncing" class="mt-4">

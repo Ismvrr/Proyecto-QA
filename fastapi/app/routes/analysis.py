@@ -39,7 +39,8 @@ class PeriodAnalysisRequest(BaseModel):
     month: int = Field(..., ge=1, le=12)
     client_prompt_id: Optional[int] = None
     prompt_text: str = Field(..., min_length=10, max_length=12000)
-    max_conversations: int = Field(1, ge=1, le=100)
+    max_conversations: Optional[int] = Field(default=1, ge=1, le=10000)
+    full_month: bool = False
     consolidate: bool = False
 
 
@@ -316,22 +317,25 @@ async def analyze_period(
     user: dict = Depends(get_current_user),
 ):
     """
-    Analyzes a manually selected period with an explicit conversation limit.
+    Analyzes a manually selected period with either an explicit conversation
+    limit or every conversation extracted for that month.
 
     The default limit is one conversation so a first test cannot accidentally
-    process a full month and spend tokens unexpectedly.
+    process a full month and spend tokens unexpectedly. ``full_month`` is an
+    explicit opt-in for the complete extracted period.
     """
     with get_db() as conn:
         with conn.cursor() as cursor:
-            cursor.execute(
-                """SELECT dialog_id, request_id
-                   FROM mensajes_request
-                   WHERE company_id=%s AND YEAR(fecha_creacion)=%s AND MONTH(fecha_creacion)=%s
-                   GROUP BY dialog_id, request_id
-                   ORDER BY MAX(fecha_creacion) DESC
-                   LIMIT %s""",
-                (request.company_id, request.year, request.month, request.max_conversations),
-            )
+            query = """SELECT dialog_id, request_id
+                       FROM mensajes_request
+                       WHERE company_id=%s AND YEAR(fecha_creacion)=%s AND MONTH(fecha_creacion)=%s
+                       GROUP BY dialog_id, request_id
+                       ORDER BY MAX(fecha_creacion) DESC"""
+            params = [request.company_id, request.year, request.month]
+            if not request.full_month:
+                query += " LIMIT %s"
+                params.append(request.max_conversations or 1)
+            cursor.execute(query, params)
             conversations = cursor.fetchall()
 
     results = []
@@ -348,7 +352,7 @@ async def analyze_period(
         results.append(await analyze_conversation(conversation_request, x_gemini_api_key, user))
 
     consolidation = None
-    if request.consolidate and len(results) > 1:
+    if (request.consolidate or request.full_month) and len(results) > 1:
         consolidation = await asyncio.to_thread(
             _save_consolidation,
             request,
