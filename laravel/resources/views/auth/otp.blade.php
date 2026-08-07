@@ -19,9 +19,16 @@
 
         <form action="{{ route('login') }}" method="POST">
             @csrf
-            <input type="hidden" name="email" value="{{ session('temp_c2d_email') }}">
-            <input type="hidden" name="password" value="{{ session('temp_c2d_password') }}">
-            
+            <div class="mb-4">
+                <label class="block text-gray-700 text-sm font-bold mb-2">Correo de Chat2Desk</label>
+                <input type="email" name="email" value="{{ $email ?? old('email') }}" required
+                    class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div class="mb-4">
+                <label class="block text-gray-700 text-sm font-bold mb-2">Contraseña</label>
+                <input type="password" name="password" required autocomplete="current-password"
+                    class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
             <div class="mb-6">
                 <label class="block text-gray-700 text-sm font-bold mb-2 text-center">Código de un solo uso (OTP)</label>
                 <input type="text" name="otp" required autocomplete="off" autofocus
@@ -29,9 +36,11 @@
 	    </div>
 		<script src="https://www.google.com/recaptcha/api.js" async defer></script>
 
-		<div class="mb-4 flex justify-center">
-			<div class="g-recaptcha" data-sitekey="{{ env('RECAPTCHA_SITE_KEY') }}"></div>
-		</div>
+            @if(config('services.recaptcha.site_key'))
+                <div class="mb-4 flex justify-center">
+                    <div class="g-recaptcha" data-sitekey="{{ config('services.recaptcha.site_key') }}"></div>
+                </div>
+            @endif
 
             <button type="submit" 
                 class="w-full bg-blue-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-blue-700 transition duration-300">

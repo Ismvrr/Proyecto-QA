@@ -33,6 +33,7 @@ use App\Services\Chat2DeskService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cookie;
+use Illuminate\Support\Facades\Log;
 use Firebase\JWT\JWT;
 use Firebase\JWT\Key;
 
@@ -99,39 +100,71 @@ class Chat2DeskLoginController extends Controller
      */
     public function login(Request $request)
     {
-        // Validación de entrada
-        $request->validate([
-            'email' => 'required|email',
-            'password' => 'required',
-        ]);
-
         $otp = $request->input('otp');
         $recaptchaResponse = $request->input('g-recaptcha-response');
+
+        if (!config('services.recaptcha.site_key')) {
+            Log::warning('Chat2Desk login blocked: reCAPTCHA is not configured');
+            return back()->withErrors([
+                'email' => 'La verificación reCAPTCHA no está configurada en el servidor.',
+            ]);
+        }
+
+        if (!$recaptchaResponse) {
+            Log::warning('Chat2Desk login blocked: reCAPTCHA response missing', [
+                'has_otp' => (bool) $otp,
+            ]);
+            return back()->withErrors([
+                'email' => 'Completa la verificación reCAPTCHA antes de continuar.',
+            ]);
+        }
+
+        if ($otp) {
+            $request->validate([
+                'email' => 'required|email',
+                'password' => 'required',
+                'otp' => 'required|string|min:4|max:12',
+            ]);
+
+            $email = $request->input('email');
+            $password = $request->input('password');
+        } else {
+            $request->validate([
+                'email' => 'required|email',
+                'password' => 'required',
+            ]);
+
+            $email = $request->input('email');
+            $password = $request->input('password');
+        }
         
         // Llamar a la API de Chat2Desk
         $c2dResponse = $this->c2dService->signIn(
-            $request->email, 
-            $request->password, 
+            $email,
+            $password,
             $otp, 
             $recaptchaResponse
         );
 
         if (!$c2dResponse) {
+            Log::error('Chat2Desk login returned no response', [
+                'email_hash' => $this->emailHash($email),
+                'has_otp' => (bool) $otp,
+                'has_recaptcha' => true,
+            ]);
             return back()->withErrors(['email' => 'Error de comunicaci\u00f3n con Chat2Desk.']);
         }
        
         // Manejar errores de Chat2Desk
         if (isset($c2dResponse['status']) && $c2dResponse['status'] === 'error') {
             $errors = $c2dResponse['errors']['error'] ?? [];
+            $this->logC2dLoginRejection($email, $otp, $c2dResponse);
 
             // OTP requerido o incorrecto → mostrar formulario OTP
             if (in_array('incorrect_otp', $errors) || isset($c2dResponse['errors']['otp_required'])) {
-                $request->session()->put('temp_c2d_email', $request->email);
-                $request->session()->put('temp_c2d_password', $request->password);
-                return view('auth.otp');
+                return view('auth.otp', ['email' => $email]);
             }
 
-            // Otro error → mostrar respuesta cruda
             $mensajeCrudo = json_encode($c2dResponse);
             return back()->withErrors(['email' => "Respuesta de C2D: " . $mensajeCrudo]);
         }
@@ -140,19 +173,19 @@ class Chat2DeskLoginController extends Controller
         $authKey = $c2dResponse['data']['auth_key'] ?? $c2dResponse['auth_key'] ?? null;
 
         if (!$authKey) {
+            Log::error('Chat2Desk login succeeded without auth key', [
+                'email_hash' => $this->emailHash($email),
+            ]);
             return back()->withErrors(['email' => 'No se pudo obtener la llave de autorizaci\u00f3n (auth_key).']);
         }
 
-        // Limpiar datos temporales de sesión
-        $request->session()->forget(['temp_c2d_email', 'temp_c2d_password']);
-
         // Buscar o crear usuario local
-        $user = User::where('email', $request->email)->where('isdeleted', 0)->first();
+        $user = User::where('email', $email)->where('isdeleted', 0)->first();
 
         if (!$user) {
             // Primer login → crear usuario con rol 'shadow'
             $user = User::create([
-                'email' => $request->email,
+                'email' => $email,
                 'auth_key' => $authKey,
                 'status' => 'enabled',
                 'role' => 'shadow', 
@@ -200,5 +233,32 @@ class Chat2DeskLoginController extends Controller
         // RedirectResponse has no forgetCookie method; queue the deletion instead.
         $response->withCookie(Cookie::forget('token', '/', '.chat2desk.support'));
         return $response;
+    }
+
+    private function emailHash(string $email): string
+    {
+        return hash('sha256', strtolower(trim($email)));
+    }
+
+    private function logC2dLoginRejection(string $email, ?string $otp, array $response): void
+    {
+        $errorData = $response['errors'] ?? [];
+        $errorCodes = $errorData['error'] ?? [];
+        $errorCodes = is_array($errorCodes) ? $errorCodes : [$errorCodes];
+        $bruteForce = $errorData['brute_force'] ?? null;
+        $bruteForceData = is_string($bruteForce) ? json_decode($bruteForce, true) : $bruteForce;
+        $statusCode = $errorData['status_code'] ?? null;
+        $statusCode = is_array($statusCode) ? ($statusCode[0] ?? null) : $statusCode;
+
+        Log::warning('Chat2Desk login rejected', [
+            'email_hash' => $this->emailHash($email),
+            'c2d_status' => $response['status'] ?? null,
+            'c2d_status_code' => $statusCode,
+            'error_codes' => array_values(array_filter($errorCodes, 'is_string')),
+            'captcha_rejected' => in_array('captcha', $errorCodes, true),
+            'otp_submitted' => (bool) $otp,
+            'failed_attempts' => is_array($bruteForceData) ? ($bruteForceData['failed_attempts_number'] ?? null) : null,
+            'max_attempts' => is_array($bruteForceData) ? ($bruteForceData['max_attempts_number'] ?? null) : null,
+        ]);
     }
 }

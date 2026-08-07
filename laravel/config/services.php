@@ -7,6 +7,10 @@ return [
         'web_url' => env('C2D_WEB_BASE_URL', 'https://web.chat2desk.com.mx'),
     ],
 
+    'recaptcha' => [
+        'site_key' => env('RECAPTCHA_SITE_KEY'),
+    ],
+
     'jwt_secret' => env('JWT_SECRET'),
 
     'fastapi' => [

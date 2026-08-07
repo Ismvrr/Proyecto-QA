@@ -30,9 +30,11 @@
 	    </div>
 	    <script src="https://www.google.com/recaptcha/api.js" async defer></script>
 
-	    <div class="mb-4 flex justify-center">
-   	       <div class="g-recaptcha" data-sitekey="{{ env('RECAPTCHA_SITE_KEY') }}"></div>
-	    </div>
+            @if(config('services.recaptcha.site_key'))
+                <div class="mb-4 flex justify-center">
+                    <div class="g-recaptcha" data-sitekey="{{ config('services.recaptcha.site_key') }}"></div>
+                </div>
+            @endif
             <button type="submit" 
                 class="w-full bg-blue-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-blue-700 transition duration-300">
                 Entrar al Ecosistema
